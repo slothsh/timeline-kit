@@ -3,6 +3,8 @@
 use encoding_rs_io::DecodeReaderBytesBuilder;
 use std::io::{BufRead, BufReader};
 use std::fs::File;
+use crate::chrono::Timecode;
+use crate::chrono::FrameRate;
 
 const EDL_HEADER_LINE_SIZE: u32 = 8;
 const EDL_TRACK_LISTING_LINE_SIZE: u32 = 4;
@@ -216,8 +218,11 @@ impl<'a> EDLParser<'a> {
                                     EDLField::SessionName           => edl_session.name             = value.to_string(),
                                     EDLField::SessionSampleRate     => edl_session.sample_rate      = value.parse::<f32>().expect("sample rate field must be valid float-point number"),
                                     EDLField::SessionBitDepth       => edl_session.bit_depth        = value.strip_suffix("-bit").unwrap_or(value).parse::<u32>().expect("bit depth field must be valid integral number"),
-                                    EDLField::SessionStartTimecode  => edl_session.start_timecode   = value.to_string(),
-                                    EDLField::SessionTimecodeFormat => edl_session.fps              = value.to_string(),
+                                    EDLField::SessionStartTimecode  => edl_session.start_timecode   = Timecode::from_str(value, FrameRate::default()).expect("session start timecode field must be a valid frame-rate string"),
+                                    EDLField::SessionTimecodeFormat => {
+                                        edl_session.fps = FrameRate::from_str(value.strip_suffix(" Frame").expect("session timecode format must specify unit type")).expect("session timecode format field must be a valid frame-rate string");
+                                        edl_session.start_timecode.set_frame_rate(edl_session.fps);
+                                    },
                                     EDLField::SessionNumAudioTracks => edl_session.num_audio_tracks = value.parse::<u32>().expect("number of audio tracks field must be valid integral number"),
                                     EDLField::SessionNumAudioClips  => edl_session.num_audio_clips  = value.parse::<u32>().expect("number of audio clips field must be valid integral number"),
                                     EDLField::SessionNumAudioFiles  => edl_session.num_audio_files  = value.parse::<u32>().expect("number of audio files field must be valid integral number"),
@@ -259,7 +264,7 @@ impl<'a> EDLParser<'a> {
 
                                 EDLValue::TableEntry(section, cells) => {
                                     if let Some(track) = &mut current_track {
-                                        let event = EDLEvent::from(cells);
+                                        let event = EDLEvent::from((cells, edl_session.fps));
                                         track.events.push(event);
                                     } 
 
@@ -417,8 +422,8 @@ pub struct EDLSession {
     pub name: String,
     pub sample_rate: f32,
     pub bit_depth: u32,
-    pub start_timecode: String,
-    pub fps: String,
+    pub start_timecode: Timecode,
+    pub fps: FrameRate,
     pub num_audio_tracks: u32,
     pub num_audio_clips: u32,
     pub num_audio_files: u32,
@@ -431,16 +436,14 @@ impl EDLSession {
             name: "".to_string(),
             sample_rate: 0.0,
             bit_depth: 0,
-            start_timecode: "".to_string(),
-            fps: "".to_string(),
+            start_timecode: Timecode::with_fps(FrameRate::default()),
+            fps: FrameRate::default(),
             num_audio_tracks: 0,
             num_audio_clips: 0,
             num_audio_files: 0,
             tracks: Vec::<EDLTrack>::with_capacity(16),
         }
     }
-
-    
 }
 
 #[derive(Debug, PartialEq, PartialOrd, Ord, Clone, Eq)]
@@ -476,8 +479,8 @@ pub struct EDLEvent {
     pub channel: u32,
     pub event: u32,
     pub name: String,
-    pub time_in: String,
-    pub time_out: String,
+    pub time_in: Timecode,
+    pub time_out: Timecode,
     pub state: bool,
 }
 
@@ -487,22 +490,22 @@ impl EDLEvent {
             channel: 0,
             event: 0,
             name: "".to_string(),
-            time_in: "".to_string(),
-            time_out: "".to_string(),
+            time_in: Timecode::default(),
+            time_out: Timecode::default(),
             state: false,
         }
     }
 }
 
-impl<'a> From<&'a [&'a str; EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS[EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS.len() - 1]]> for EDLEvent {
-    fn from(event_values: &'a [&'a str; EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS[EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS.len() - 1]]) -> Self {
+impl<'a> From<(&'a [&'a str; EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS[EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS.len() - 1]], FrameRate)> for EDLEvent {
+    fn from((event_values, frame_rate): (&'a [&'a str; EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS[EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS.len() - 1]], FrameRate)) -> Self {
         let state_index = EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS.len() - 1;
         Self {
             channel: event_values[0].parse::<u32>().expect("first column of event entry must be a valid number"),
             event: event_values[1].parse::<u32>().expect("second column of event entry must be a valid number"),
             name: event_values[2].to_string(),
-            time_in: event_values[3].to_string(),
-            time_out: event_values[4].to_string(),
+            time_in: Timecode::from_str(event_values[3], frame_rate).expect("timecode-in column of event entry must be a valid timecode string"),
+            time_out: Timecode::from_str(event_values[4], frame_rate).expect("timecode-out column of event entry must be a valid timecode string"),
             state: event_values.as_slice()[state_index..]
                                .iter()
                                .take(1)
@@ -510,6 +513,22 @@ impl<'a> From<&'a [&'a str; EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS[EDL_TRACK_EVENT_
                                .nth(0)
                                .expect(format!("track event value must be one of either \"Muted\" or \"Unmuted\", but instead found: {}", event_values[6]).as_str())
         }
+    }
+}
+
+impl IntoIterator for EDLSession {
+    type Item = EDLTrack;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.tracks.into_iter()
+    }
+}
+
+impl IntoIterator for EDLTrack {
+    type Item = EDLEvent;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.events.into_iter()
     }
 }
 

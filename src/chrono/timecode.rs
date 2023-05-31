@@ -71,6 +71,9 @@ const TC_STRING_TICKS_GROUP_SIZE: usize = 3;
 const TC_STRING_REGULAR_LENGTH: usize = TC_TOTAL_GROUPS * TC_STRING_REGULAR_GROUP_SIZE + (TC_TOTAL_GROUPS - 1);
 
 // TODO: Doc comments
+const TC_REGULAR_TOTAL_GROUPS: usize = TC_TOTAL_GROUPS - 1;
+const TC_STRING_DELIMITER_COLON: char = ':';
+const TC_STRING_DELIMITER_SEMICOLON: char = ';';
 const TC_TICK_RESOLUTION: usize = 100;
 const TC_SCALAR_HOURS_INDEX: usize = 0;
 const TC_SCALAR_MINUTES_INDEX: usize = 1;
@@ -140,14 +143,14 @@ pub struct Timecode {
 
 impl Timecode {
     /// Constructs a new `Timecode` with a specified frame rate
-    pub fn with_fps(fps: FrameRate) -> Self {
+    pub fn with_fps(fps: TimecodeFrameRate) -> Self {
         Self {
             fps,
             ..Timecode::default()
         }
     }
 
-    pub fn new(groups: &[TimecodeScalar; TC_TOTAL_GROUPS], fps: FrameRate) -> Self {
+    pub fn from_parts(groups: &[TimecodeScalar; TC_TOTAL_GROUPS], fps: FrameRate) -> Self {
         // TODO: Check bounds of groups
         // TODO: Check flags based on bounds check of groups
 
@@ -156,6 +159,29 @@ impl Timecode {
             fps,
             ..Timecode::default()
         }
+    }
+
+    pub fn from_str(tc_string: &str, fps: FrameRate) -> Result<Self, ()> { // TODO: ErrorType for timecodes
+        let parts = tc_string.split([TC_STRING_DELIMITER_COLON, TC_STRING_DELIMITER_SEMICOLON])
+            .into_iter()
+            .map(|c| c.parse::<TimecodeScalar>().expect("timecode string parts must be a valid TimecodeScalar"));
+
+        let total_parts = parts.clone().count();
+        if total_parts != TC_TOTAL_GROUPS && total_parts != TC_REGULAR_TOTAL_GROUPS {
+            // TODO: Change to more meaningful error
+            return Err(());
+        }
+
+        let mut timecode = Self {
+            fps,
+            ..Timecode::default()
+        };
+
+        for (i, scalar) in parts.enumerate() {
+            timecode.data[i] = scalar;
+        }
+
+        Ok(timecode)
     }
 }
 
@@ -186,17 +212,25 @@ impl Timecode {
         return T::from(self.data[TC_SCALAR_TICKS_INDEX]).unwrap();
     }
 
+    pub fn frame_rate(&self) -> TimecodeFrameRate {
+        self.fps
+    }
+
     pub fn to_ticks(&self) -> usize {
         let mut ticks: usize = 0;
         for (scalar, i) in self.data.iter().zip(TC_SCALAR_ORDER_TABLE) {
             match TC_CONFIG_TABLE[i].1 {
-                TernaryPredicate::True => ticks += *scalar as usize * TC_CONFIG_TABLE[i].0 * self.fps.as_usize() * TC_TICK_RESOLUTION,
+                TernaryPredicate::True => ticks += *scalar as usize * TC_CONFIG_TABLE[i].0 * self.fps.as_float().to_usize().unwrap() * TC_TICK_RESOLUTION,
                 TernaryPredicate::False => ticks += *scalar as usize * TC_CONFIG_TABLE[i].0 * TC_TICK_RESOLUTION,
                 TernaryPredicate::Other => ticks += *scalar as usize,
             }
         }
 
         ticks
+    }
+
+    pub fn set_frame_rate(&mut self, fps: FrameRate) {
+        self.fps = fps;
     }
 }
 
@@ -590,8 +624,8 @@ mod tests {
     }
 
     #[test]
-    fn new_constructor() {
-        let timecode = Timecode::new(&[0, 1, 2, 3, 4], FrameRate::Fps25);
+    fn parts_constructor() {
+        let timecode = Timecode::from_parts(&[0, 1, 2, 3, 4], FrameRate::Fps25);
         assert_eq!(timecode.data[TC_SCALAR_HOURS_INDEX], 0);
         assert_eq!(timecode.data[TC_SCALAR_MINUTES_INDEX], 1);
         assert_eq!(timecode.data[TC_SCALAR_SECONDS_INDEX], 2);
@@ -602,8 +636,31 @@ mod tests {
     }
 
     #[test]
+    fn str_constructor() {
+        let timecode_with_ticks = Timecode::from_str("00:01:02:03:04", FrameRate::Fps25).expect("timecode must be constructible with a timecode string slice");
+        let timecode_regular = Timecode::from_str("05:06:07:08", FrameRate::Fps25).expect("timecode must be constructible with a timecode string slice");
+
+        assert_eq!(timecode_with_ticks.data[TC_SCALAR_HOURS_INDEX], 0);
+        assert_eq!(timecode_with_ticks.data[TC_SCALAR_MINUTES_INDEX], 1);
+        assert_eq!(timecode_with_ticks.data[TC_SCALAR_SECONDS_INDEX], 2);
+        assert_eq!(timecode_with_ticks.data[TC_SCALAR_FRAMES_INDEX], 3);
+        assert_eq!(timecode_with_ticks.data[TC_SCALAR_TICKS_INDEX], 4);
+        assert_eq!(timecode_with_ticks.fps, FrameRate::Fps25);
+        assert_eq!(timecode_with_ticks.flags, TC_FLAGS_DEFAULT);
+
+        assert_eq!(timecode_regular.data[TC_SCALAR_HOURS_INDEX], 5);
+        assert_eq!(timecode_regular.data[TC_SCALAR_MINUTES_INDEX], 6);
+        assert_eq!(timecode_regular.data[TC_SCALAR_SECONDS_INDEX], 7);
+        assert_eq!(timecode_regular.data[TC_SCALAR_FRAMES_INDEX], 8);
+        assert_eq!(timecode_regular.data[TC_SCALAR_TICKS_INDEX], 0);
+        assert_eq!(timecode_regular.fps, FrameRate::Fps25);
+        assert_eq!(timecode_regular.flags, TC_FLAGS_DEFAULT);
+    }
+
+
+    #[test]
     fn ticks_conversion() {
-        let timecode = Timecode::new(&[1, 2, 3, 4, 5], FrameRate::Fps25);
+        let timecode = Timecode::from_parts(&[1, 2, 3, 4, 5], FrameRate::Fps25);
         let exptected_ticks = (timecode.data[TC_SCALAR_HOURS_INDEX] as usize * 3600 * 25 * TC_TICK_RESOLUTION)
                               + (timecode.data[TC_SCALAR_MINUTES_INDEX] as usize * 60 * 25 * TC_TICK_RESOLUTION)
                               + (timecode.data[TC_SCALAR_SECONDS_INDEX] as usize * 25 * TC_TICK_RESOLUTION)
@@ -626,7 +683,7 @@ mod tests {
     #[test]
     fn display_trait_regular_representation() {
         let timecode_defaulted = Timecode::default();
-        let timecode_new = Timecode::new(&[13, 12, 32, 42, 100], FrameRate::Fps25);
+        let timecode_new = Timecode::from_parts(&[13, 12, 32, 42, 100], FrameRate::Fps25);
         assert_eq!("00:00:00:00", format!("{}", timecode_defaulted));
         assert_eq!("13:12:32:42", format!("{}", timecode_new));
     }
