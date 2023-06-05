@@ -3,6 +3,7 @@
 use encoding_rs_io::DecodeReaderBytesBuilder;
 use std::io::{BufRead, BufReader};
 use std::fs::File;
+use std::println;
 use crate::chrono::Timecode;
 use crate::chrono::FrameRate;
 
@@ -10,7 +11,7 @@ const EDL_HEADER_LINE_SIZE: u32 = 8;
 const EDL_TRACK_LISTING_LINE_SIZE: u32 = 4;
 const EDL_SECTION_TERMINATOR_LENGTH: u32 = 2;
 const EDL_FIELD_PARTS_LENGTH: u32 = 2;
-const EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS: [usize; 2] = [7, 8];
+const EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS: [usize; 3] = [2, 7, 8];
 const EDLPARSER_MASK_SECTION_PLUGINSLISTING: u8 = 0b00000001;
 
 const EDLSECTION_SIZE: usize = EDLSection::Ignore as usize + 1;
@@ -18,6 +19,8 @@ const EDLSECTION_SIZE: usize = EDLSection::Ignore as usize + 1;
 enum EDLSection {
     Header,
     PluginsListing,
+    OnlineFiles,
+    OnlineClips,
     TrackListing,
     TrackEvent,
     #[default]
@@ -29,6 +32,8 @@ impl EDLSection {
         match self {
             EDLSection::Header => "__header__",
             EDLSection::PluginsListing => "P L U G - I N S  L I S T I N G",
+            EDLSection::OnlineFiles => "O N L I N E  F I L E S  I N  S E S S I O N",
+            EDLSection::OnlineClips => "O N L I N E  C L I P S  I N  S E S S I O N",
             EDLSection::TrackListing => "T R A C K  L I S T I N G",
             EDLSection::TrackEvent => "__track_event__",
             EDLSection::Ignore => "__ignore__",
@@ -40,6 +45,8 @@ impl EDLSection {
         &[
             Header,
             PluginsListing,
+            OnlineFiles,
+            OnlineClips,
             TrackListing,
             TrackEvent,
             Ignore,
@@ -162,6 +169,7 @@ pub struct EDLParser<'a> {
     trailing_new_lines: usize,
     current_section: EDLSection,
     previous_section: EDLSection,
+    section_ended: bool,
 }
 
 impl<'a> EDLParser<'a> {
@@ -172,6 +180,7 @@ impl<'a> EDLParser<'a> {
         let mut edl_parser = EDLParser {
             file_path: input_path,
             current_section: EDLSection::Header,
+            section_ended: false,
             ..EDLParser::default()
         };
 
@@ -194,11 +203,13 @@ impl<'a> EDLParser<'a> {
                     let (current_section, skip_line, reset_section) = edl_parser.check_section(trimmed_line)
                         .unwrap_or((EDLSection::Ignore, true, edl_parser.trailing_new_lines >= EDL_SECTION_TERMINATOR_LENGTH as usize));
 
-                    if current_section != EDLSection::Ignore { edl_parser.current_section = current_section; }
+                    if current_section != EDLSection::Ignore { edl_parser.current_section = current_section; edl_parser.section_ended = false; }
+                    else { edl_parser.section_ended = true; }
 
                     if reset_section {
                         edl_parser.section_position = 0;
                         edl_parser.trailing_new_lines = 0;
+                        edl_parser.section_ended = false;
 
                         if edl_parser.current_section == EDLSection::TrackEvent {
                             if let Some(track) = &current_track {
@@ -220,7 +231,7 @@ impl<'a> EDLParser<'a> {
                                     EDLField::SessionBitDepth       => edl_session.bit_depth        = value.strip_suffix("-bit").unwrap_or(value).parse::<u32>().expect("bit depth field must be valid integral number"),
                                     EDLField::SessionStartTimecode  => edl_session.start_timecode   = Timecode::from_str(value, FrameRate::default()).expect("session start timecode field must be a valid frame-rate string"),
                                     EDLField::SessionTimecodeFormat => {
-                                        edl_session.fps = FrameRate::from_str(value.strip_suffix(" Frame").expect("session timecode format must specify unit type")).expect("session timecode format field must be a valid frame-rate string");
+                                        edl_session.fps = FrameRate::from_str(value.strip_suffix(Self::select_fps_suffix(value).unwrap()).expect("session timecode format must specify unit type")).expect("session timecode format field must be a valid frame-rate string");
                                         edl_session.start_timecode.set_frame_rate(edl_session.fps);
                                     },
                                     EDLField::SessionNumAudioTracks => edl_session.num_audio_tracks = value.parse::<u32>().expect("number of audio tracks field must be valid integral number"),
@@ -228,6 +239,44 @@ impl<'a> EDLParser<'a> {
                                     EDLField::SessionNumAudioFiles  => edl_session.num_audio_files  = value.parse::<u32>().expect("number of audio files field must be valid integral number"),
                                     _ => eprintln!("parsing not implemented for field \"{:?}\" with value {}", field, value),
                                 }
+                            }
+                        }
+
+                        else if current_section == EDLSection::OnlineFiles {
+                            let mut online_file_value_buffer: [&str; EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS[EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS.len() - 1]] = [""; EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS[EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS.len() - 1]];
+                            let data = edl_parser.parse_edl_online_file(trimmed_line, &mut online_file_value_buffer)?;
+
+                            match data {
+                                EDLValue::TableHeader(section, columns) => {
+                                    // TODO: Maybe validate names of columns?
+                                    // TODO: Set state for event table width?
+                                }
+
+                                EDLValue::TableEntry(section, cells) => {
+                                    let online_file = EDLMediaFile::new(cells[0], cells[1]);
+                                    edl_session.files.online_files.push(online_file);
+                                }
+
+                                _ => panic!("failed to parse EDLValue token, an unexpected or invalid token was encountered when parsing an EDL online file entry"),
+                            }
+                        }
+
+                        else if current_section == EDLSection::OnlineClips {
+                            let mut online_clip_value_buffer: [&str; EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS[EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS.len() - 1]] = [""; EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS[EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS.len() - 1]];
+                            let data = edl_parser.parse_edl_online_clip(trimmed_line, &mut online_clip_value_buffer)?;
+
+                            match data {
+                                EDLValue::TableHeader(section, columns) => {
+                                    // TODO: Maybe validate names of columns?
+                                    // TODO: Set state for event table width?
+                                }
+
+                                EDLValue::TableEntry(section, cells) => {
+                                    let online_clip = EDLClip::new(cells[0], cells[1]);
+                                    edl_session.files.online_clips.push(online_clip);
+                                }
+
+                                _ => panic!("failed to parse EDLValue token, an unexpected or invalid token was encountered when parsing an EDL online file entry"),
                             }
                         }
 
@@ -315,6 +364,16 @@ impl<'a> EDLParser<'a> {
             }
         }
 
+        if self.section_ended { return Some((self.current_section, true, false)); }
+
+        if self.current_section == OnlineFiles {
+            return Some((OnlineFiles, false, false))
+        }
+
+        if self.current_section == OnlineClips {
+            return Some((OnlineClips, false, false))
+        }
+
         if self.current_section == TrackListing {
             // If within the track-listing section beyond the header size,
             // it means we're in the track event table of the current track
@@ -360,6 +419,44 @@ impl<'a> EDLParser<'a> {
         }
 
         Err(format!("edl field could not be parsed, either because no recognized fields were found or the field format was incorrect: these are the fields that were parsed: {:?}", line_parts))
+    }
+
+    fn parse_edl_online_file<'z>(&mut self, line: &'z str, online_file_value_buffer: &'z mut [&'z str; EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS[EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS.len() - 1]]) -> Result<EDLValue<'z>, String> {
+        let online_file_cells = line.split("\t").collect::<Vec<&'z str>>();
+
+        if EDLParser::is_valid_event_table_column_width(online_file_cells.len()) {
+            for (i, value) in online_file_cells.iter().enumerate() {
+                online_file_value_buffer[i] = value.trim();
+            }
+
+            const SECTION: usize = EDLSection::OnlineFiles.as_usize();
+            if self.section_position > self.get_section_size::<SECTION>() + 1 {
+                return Ok(EDLValue::TableEntry(self.current_section, online_file_value_buffer));
+            }
+
+            return Ok(EDLValue::TableHeader(self.current_section, online_file_value_buffer));
+        }
+
+        Err(format!("edl online file entry could not be parsed, either because there aren't enough columns, or because an invalid format was encountered: this was the event that caused an error: {:?}", line))
+    }
+
+    fn parse_edl_online_clip<'z>(&mut self, line: &'z str, online_clip_value_buffer: &'z mut [&'z str; EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS[EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS.len() - 1]]) -> Result<EDLValue<'z>, String> {
+        let online_clip_cells = line.split("\t").collect::<Vec<&'z str>>();
+
+        if EDLParser::is_valid_event_table_column_width(online_clip_cells.len()) {
+            for (i, value) in online_clip_cells.iter().enumerate() {
+                online_clip_value_buffer[i] = value.trim();
+            }
+
+            const SECTION: usize = EDLSection::OnlineClips.as_usize();
+            if self.section_position > self.get_section_size::<SECTION>() + 1 {
+                return Ok(EDLValue::TableEntry(self.current_section, online_clip_value_buffer));
+            }
+
+            return Ok(EDLValue::TableHeader(self.current_section, online_clip_value_buffer));
+        }
+
+        Err(format!("edl online file entry could not be parsed, either because there aren't enough columns, or because an invalid format was encountered: this was the event that caused an error: {:?}", line))
     }
 
     fn parse_edl_track_event<'z>(&mut self, line: &'z str, event_value_buffer: &'z mut [&'z str; EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS[EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS.len() - 1]]) -> Result<EDLValue<'z>, String>
@@ -415,6 +512,21 @@ impl<'a> EDLParser<'a> {
 
         false
     }
+
+    fn select_fps_suffix(fps_string: &str) -> Option<&str> {
+        // The order matters here, make sure to test for
+        // longer suffixes first, otherwise it we get a
+        // false-positive on "Frame"
+        if fps_string.contains(" Drop Frame") {
+            return Some(" Drop Frame")
+        }
+
+        else if fps_string.contains(" Frame") {
+            return Some(" Frame")
+        }
+
+        None
+    }
 }
 
 #[derive(Debug, Default)]
@@ -427,6 +539,7 @@ pub struct EDLSession {
     pub num_audio_tracks: u32,
     pub num_audio_clips: u32,
     pub num_audio_files: u32,
+    pub files: EDLFileList,
     pub tracks: Vec<EDLTrack>,
 }
 
@@ -441,7 +554,55 @@ impl EDLSession {
             num_audio_tracks: 0,
             num_audio_clips: 0,
             num_audio_files: 0,
+            files: EDLFileList::default(),
             tracks: Vec::<EDLTrack>::with_capacity(16),
+        }
+    }
+}
+
+#[derive(Debug, Default, PartialEq, PartialOrd, Ord, Clone, Eq)]
+pub struct EDLMediaFile {
+    pub file_name: String,
+    pub location: String,
+}
+
+impl EDLMediaFile {
+    pub fn new(file_name: &str, location: &str) -> Self {
+        Self {
+            file_name: file_name.to_string(),
+            location: location.to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Default, PartialEq, PartialOrd, Ord, Clone, Eq)]
+pub struct EDLClip {
+    pub clip_name: String,
+    pub source_file: String,
+}
+
+impl EDLClip {
+    pub fn new(clip_name: &str, source_file: &str) -> Self {
+        Self {
+            clip_name: clip_name.to_string(),
+            source_file: source_file.to_string(),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, PartialOrd, Ord, Clone, Eq)]
+pub struct EDLFileList {
+    pub online_files: Vec<EDLMediaFile>,
+    pub offline_files: Vec<EDLMediaFile>,
+    pub online_clips: Vec<EDLClip>,
+}
+
+impl Default for EDLFileList {
+    fn default() -> Self {
+        Self {
+            online_files: Vec::<_>::default(),
+            offline_files: Vec::<_>::default(),
+            online_clips: Vec::<_>::default(),
         }
     }
 }
