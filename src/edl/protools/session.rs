@@ -25,6 +25,7 @@ pub struct EDLSession {
     pub num_audio_files: u32,
     pub files: EDLFileList,
     pub markers: Vec<EDLMarker>,
+    pub plugins: Vec<EDLPlugin>,
     pub tracks: Vec<EDLTrack>,
 }
 
@@ -41,6 +42,7 @@ impl EDLSession {
             num_audio_files: 0,
             files: EDLFileList::default(),
             markers: Vec::<EDLMarker>::default(),
+            plugins: Vec::<EDLPlugin>::default(),
             tracks: Vec::<EDLTrack>::with_capacity(16),
         }
     }

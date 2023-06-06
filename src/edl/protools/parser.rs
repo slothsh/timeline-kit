@@ -1,8 +1,10 @@
 // Copyright (C) Stefan Olivier
 // <https://stefanolivier.com>
 
+use std::borrow::Borrow;
 use std::io::{BufRead, BufReader};
 use std::fs::File;
+use std::str::FromStr;
 use std::{println, marker};
 
 use encoding_rs_io::DecodeReaderBytesBuilder;
@@ -57,6 +59,7 @@ impl<'a> EDLParser<'a> {
 
         let mut edl_session = EDLSession::new();
         let mut current_track: Option<EDLTrack> = None;
+        let mut current_plugin_manufacturer: Option<String> = None;
 
         while let Some(line_result) = all_lines.next() {
             match line_result {
@@ -82,15 +85,24 @@ impl<'a> EDLParser<'a> {
 
                             current_track = None;
                         }
+
+                        if edl_parser.current_section == EDLSection::PluginsListing {
+                            current_plugin_manufacturer = None;
+                        }
                     }
 
                     if !skip_line {
                         edl_parser.section_position += 1;
 
-                        // fill_header
                         if current_section == EDLSection::Header {
                             if let EDLValue::Field(_, field, value) = edl_parser.parse_edl_field(trimmed_line)? {
                                 edl_parser.fill_session_header(&mut edl_session, &field, &value);
+                            }
+                        }
+
+                        else if current_section == EDLSection::TrackListing {
+                            if let EDLValue::Field(_, field, value) = edl_parser.parse_edl_field(trimmed_line)? {
+                                edl_parser.fill_track_listing(&mut current_track, &field, &value);
                             }
                         }
 
@@ -112,10 +124,12 @@ impl<'a> EDLParser<'a> {
                             edl_parser.fill_online_clips(&mut edl_session, &data);
                         }
 
-                        else if current_section == EDLSection::TrackListing {
-                            if let EDLValue::Field(_, field, value) = edl_parser.parse_edl_field(trimmed_line)? {
-                                edl_parser.fill_track_listing(&mut current_track, &field, &value);
-                            }
+                        else if current_section == EDLSection::PluginsListing {
+                            let mut plugin_list_value_buffer: [&str; EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS[EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS.len() - 1]] = [""; EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS[EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS.len() - 1]];
+                            // TODO: Find better way to ensure that line is not trimmed before
+                            // being parsed
+                            let data = edl_parser.parse_edl_plugin_listing(line.as_str(), &mut plugin_list_value_buffer, &mut current_plugin_manufacturer)?;
+                            edl_parser.fill_plugin_list(&mut edl_session, &data);
                         }
 
                         else if current_section == EDLSection::TrackEvent {
@@ -188,6 +202,10 @@ impl<'a> EDLParser<'a> {
 
         if self.current_section == OnlineClips {
             return Some((OnlineClips, false, false))
+        }
+
+        if self.current_section == PluginsListing {
+            return Some((PluginsListing, false, false))
         }
 
         if self.current_section == TrackListing {
@@ -298,6 +316,40 @@ impl<'a> EDLParser<'a> {
         Err(format!("edl online clip entry could not be parsed, either because there aren't enough columns, or because an invalid format was encountered: this was the event that caused an error: {:?}", line))
     }
 
+    fn parse_edl_plugin_listing<'z>(&mut self, line: &'z str, plugin_listing_value_buffer: &'z mut [&'z str; EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS[EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS.len() - 1]], previous_plugin_manufacturer: &'z mut Option<String>) -> Result<EDLValue<'z>, String> {
+        let plugin_listing_cells = line.split("\t").collect::<Vec<&'z str>>();
+
+        if EDLParser::is_valid_event_table_column_width(plugin_listing_cells.len()) {
+            for (i, value) in plugin_listing_cells.iter().enumerate() {
+                if i == 0 && self.section_position > 1 && value.trim() == "" {
+                    match &*previous_plugin_manufacturer {
+                        // TODO: Better way to do this?
+                        Some(manufacturer) => {
+                            *previous_plugin_manufacturer = Some(manufacturer.clone());
+                        },
+
+                        None => {
+                            *previous_plugin_manufacturer = Some(String::from_str(value.trim()).expect("manufacturer string slice must be a valid string"));
+                        }
+                    }
+                }
+
+                else {
+                    plugin_listing_value_buffer[i] = value.trim();
+                }
+            }
+
+            const SECTION: usize = EDLSection::PluginsListing.as_usize();
+            if self.section_position > self.get_section_size::<SECTION>() + 1 {
+                return Ok(EDLValue::TableEntry(self.current_section, plugin_listing_value_buffer));
+            }
+
+            return Ok(EDLValue::TableHeader(self.current_section, plugin_listing_value_buffer));
+        }
+
+        Err(format!("edl plugin listing entry could not be parsed, either because there aren't enough columns, or because an invalid format was encountered: this was the event that caused an error: {:?}", line))
+    }
+
     fn parse_edl_track_event<'z>(&mut self, line: &'z str, event_value_buffer: &'z mut [&'z str; EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS[EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS.len() - 1]]) -> Result<EDLValue<'z>, String>
     {
         let event_cells = line.split("\t").collect::<Vec<&'z str>>();
@@ -392,13 +444,15 @@ impl<'a> EDLParser<'a> {
             EDLField::SessionSampleRate     => edl_session.sample_rate      = value.parse::<f32>().expect("sample rate field must be valid float-point number"),
             EDLField::SessionBitDepth       => edl_session.bit_depth        = value.strip_suffix("-bit").unwrap_or(value).parse::<u32>().expect("bit depth field must be valid integral number"),
             EDLField::SessionStartTimecode  => edl_session.start_timecode   = Timecode::from_str(value, FrameRate::default()).expect("session start timecode field must be a valid frame-rate string"),
+            EDLField::SessionNumAudioTracks => edl_session.num_audio_tracks = value.parse::<u32>().expect("number of audio tracks field must be valid integral number"),
+            EDLField::SessionNumAudioClips  => edl_session.num_audio_clips  = value.parse::<u32>().expect("number of audio clips field must be valid integral number"),
+            EDLField::SessionNumAudioFiles  => edl_session.num_audio_files  = value.parse::<u32>().expect("number of audio files field must be valid integral number"),
+
             EDLField::SessionTimecodeFormat => {
                 edl_session.fps = FrameRate::from_str(value.strip_suffix(Self::select_fps_suffix(value).unwrap()).expect("session timecode format must specify unit type")).expect("session timecode format field must be a valid frame-rate string");
                 edl_session.start_timecode.set_frame_rate(edl_session.fps);
             },
-            EDLField::SessionNumAudioTracks => edl_session.num_audio_tracks = value.parse::<u32>().expect("number of audio tracks field must be valid integral number"),
-            EDLField::SessionNumAudioClips  => edl_session.num_audio_clips  = value.parse::<u32>().expect("number of audio clips field must be valid integral number"),
-            EDLField::SessionNumAudioFiles  => edl_session.num_audio_files  = value.parse::<u32>().expect("number of audio files field must be valid integral number"),
+
             _ => eprintln!("parsing not implemented for field \"{:?}\" with value {}", field, value),
         }
 
@@ -412,7 +466,7 @@ impl<'a> EDLParser<'a> {
             }
 
             EDLValue::TableEntry(_, cells) => {
-                let online_file = EDLMediaFile::new(cells[0], cells[1]);
+                let online_file = EDLMediaFile { file_name: cells[0].to_string(), location: cells[1].to_string() };
                 edl_session.files.online_files.push(online_file);
             }
 
@@ -428,7 +482,7 @@ impl<'a> EDLParser<'a> {
             }
 
             EDLValue::TableEntry(_, cells) => {
-                let offline_file = EDLMediaFile::new(cells[0], cells[1]);
+                let offline_file = EDLMediaFile { file_name: cells[0].to_string(), location: cells[1].to_string() };
                 edl_session.files.offline_files.push(offline_file);
             }
 
@@ -444,7 +498,7 @@ impl<'a> EDLParser<'a> {
             }
 
             EDLValue::TableEntry(_, cells) => {
-                let online_clip = EDLClip::new(cells[0], cells[1]);
+                let online_clip = EDLClip { clip_name: cells[0].to_string(), source_file: cells[1].to_string() };
                 edl_session.files.online_clips.push(online_clip);
             }
 
@@ -481,7 +535,28 @@ impl<'a> EDLParser<'a> {
 
             EDLValue::TableEntry(_, cells) => {
                 if let Some(track) = current_track {
-                    let event = EDLTrackEvent::from((*cells, edl_session.fps));
+                    let state_index = EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS.len() - 1;
+
+                    // TODO: Check if time-in/out column is in valid time unit format
+                    // and handle accordingly
+
+                    // TODO: Use a more generic way to store the time unit
+                    // EDLs may not necessarily be exported using SMPTE timecode
+
+                    let event = EDLTrackEvent {
+                        channel: cells[0].parse::<u32>().expect("first column of event entry must be a valid number"),
+                        event: cells[1].parse::<u32>().expect("second column of event entry must be a valid number"),
+                        name: cells[2].to_string(),
+                        time_in: Timecode::from_str(cells[3], edl_session.fps).expect("timecode-in column of event entry must be a valid time unit string"),
+                        time_out: Timecode::from_str(cells[4], edl_session.fps).expect("timecode-out column of event entry must be a valid time unit string"),
+                        state: cells.as_slice()[state_index..]
+                                    .iter()
+                                    .take(1)
+                                    .map(|&v| if v == "Unmuted" { true } else { false })
+                                    .nth(0)
+                                    .expect(format!("track event value must be one of either \"Muted\" or \"Unmuted\", but instead found: {}", cells[6]).as_str())
+                    };
+
                     track.events.push(event);
                 } 
 
@@ -502,19 +577,49 @@ impl<'a> EDLParser<'a> {
             }
 
             EDLValue::TableEntry(_, cells) => {
-                let marker = EDLMarker::new(
-                    cells[0].trim().parse::<u32>().expect("marker listing ID must be a valid number"),
-                    Timecode::from_str(cells[1].trim(), edl_session.fps).expect("marker listing timecode column must containt a valid timecode string"),
-                    cells[2].trim().parse::<u32>().expect("marker listing time reference must be a valid number"),
-                    EDLUnit::from_str(cells[3].trim()).expect("marker listing unit type must be a valid option"),
-                    cells[4].trim().to_string(),
-                    cells[5].trim().to_string(),
-                    );
+                let marker = EDLMarker {
+                    id: cells[0].trim().parse::<u32>().expect("marker listing ID must be a valid number"),
+                    location: Timecode::from_str(cells[1].trim(), edl_session.fps).expect("marker listing timecode column must containt a valid timecode string"),
+                    time_reference: cells[2].trim().parse::<u32>().expect("marker listing time reference must be a valid number"),
+                    unit: EDLUnit::from_str(cells[3].trim()).expect("marker listing unit type must be a valid option"),
+                    name: cells[4].trim().to_string(),
+                    comment: cells[5].trim().to_string(),
+                };
 
                 edl_session.markers.push(marker);
             }
 
             _ => panic!("failed to parse EDLValue token, an unexpected or invalid token was encountered when parsing an EDL marker listing entry"),
+        }
+    }
+
+    fn fill_plugin_list(&self, edl_session: &mut EDLSession, data: &EDLValue) {
+        match data {
+            EDLValue::TableHeader(_, _) => {
+                // TODO: Maybe validate names of columns?
+                // TODO: Set state for event table width?
+            }
+
+            EDLValue::TableEntry(_, cells) => {
+                let plugin = EDLPlugin {
+                    manufacturer: cells[0].to_string(),
+                    name: cells[1].to_string(),
+                    version: cells[2].to_string(),
+                    format: EDLPluginFormat::from_str(cells[3]).expect("plugin listing format column must be a valid option"),
+                    stems: cells[4].to_string(),
+                    total_instances: EDLPluginInstance {
+                        total_active: cells[5].trim()
+                                              .strip_suffix(" active")
+                                              .expect("plugin listing number of instances column must have the correct format for declaring active and inactive plugins")
+                                              .parse::<u32>()
+                                              .expect("plugin listing number of instances column must be a valid number"),
+                    },
+                };
+
+                edl_session.plugins.push(plugin);
+            }
+
+            _ => panic!("failed to parse EDLValue token, an unexpected or invalid token was encountered when parsing an EDL plugin listing entry"),
         }
     }
 }

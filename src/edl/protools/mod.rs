@@ -60,10 +60,13 @@ pub use session::EDLSession;
 
 pub use session_types::{
     EDLClip,
-    EDLTrackEvent,
     EDLFileList,
     EDLMarker,
     EDLMediaFile,
+    EDLPlugin,
+    EDLPluginFormat,
+    EDLPluginInstance,
     EDLTrack,
+    EDLTrackEvent,
     EDLUnit,
 };
