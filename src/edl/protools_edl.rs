@@ -819,22 +819,6 @@ impl EDLMarker {
     }
 }
 
-impl IntoIterator for EDLSession {
-    type Item = EDLTrack;
-    type IntoIter = std::vec::IntoIter<Self::Item>;
-    fn into_iter(self) -> Self::IntoIter {
-        self.tracks.into_iter()
-    }
-}
-
-impl IntoIterator for EDLTrack {
-    type Item = EDLEvent;
-    type IntoIter = std::vec::IntoIter<Self::Item>;
-    fn into_iter(self) -> Self::IntoIter {
-        self.events.into_iter()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
