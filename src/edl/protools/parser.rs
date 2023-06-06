@@ -14,7 +14,7 @@ use crate::chrono::FrameRate;
 
 ///////////////////////////////////////////////////////////////////////////
 //
-//  -- @SECTION `EDLParser` Implementation --
+//  -- @SECTION `EDLParser` Declaration --
 //
 ///////////////////////////////////////////////////////////////////////////
 
@@ -29,6 +29,12 @@ pub struct EDLParser<'a> {
     previous_section: EDLSection,
     section_ended: bool,
 }
+
+///////////////////////////////////////////////////////////////////////////
+//
+//  -- @SECTION `EDLParser` Public Implementation --
+//
+///////////////////////////////////////////////////////////////////////////
 
 impl<'a> EDLParser<'a> {
     pub fn parse(input_path: &'a str, encoding: &'static encoding_rs::Encoding) -> Result<EDLSession, String> {
@@ -81,126 +87,41 @@ impl<'a> EDLParser<'a> {
                     if !skip_line {
                         edl_parser.section_position += 1;
 
+                        // fill_header
                         if current_section == EDLSection::Header {
                             if let EDLValue::Field(_, field, value) = edl_parser.parse_edl_field(trimmed_line)? {
-                                match field {
-                                    EDLField::SessionName           => edl_session.name             = value.to_string(),
-                                    EDLField::SessionSampleRate     => edl_session.sample_rate      = value.parse::<f32>().expect("sample rate field must be valid float-point number"),
-                                    EDLField::SessionBitDepth       => edl_session.bit_depth        = value.strip_suffix("-bit").unwrap_or(value).parse::<u32>().expect("bit depth field must be valid integral number"),
-                                    EDLField::SessionStartTimecode  => edl_session.start_timecode   = Timecode::from_str(value, FrameRate::default()).expect("session start timecode field must be a valid frame-rate string"),
-                                    EDLField::SessionTimecodeFormat => {
-                                        edl_session.fps = FrameRate::from_str(value.strip_suffix(Self::select_fps_suffix(value).unwrap()).expect("session timecode format must specify unit type")).expect("session timecode format field must be a valid frame-rate string");
-                                        edl_session.start_timecode.set_frame_rate(edl_session.fps);
-                                    },
-                                    EDLField::SessionNumAudioTracks => edl_session.num_audio_tracks = value.parse::<u32>().expect("number of audio tracks field must be valid integral number"),
-                                    EDLField::SessionNumAudioClips  => edl_session.num_audio_clips  = value.parse::<u32>().expect("number of audio clips field must be valid integral number"),
-                                    EDLField::SessionNumAudioFiles  => edl_session.num_audio_files  = value.parse::<u32>().expect("number of audio files field must be valid integral number"),
-                                    _ => eprintln!("parsing not implemented for field \"{:?}\" with value {}", field, value),
-                                }
+                                edl_parser.fill_session_header(&mut edl_session, &field, &value);
                             }
                         }
 
                         else if current_section == EDLSection::OnlineFiles {
                             let mut online_file_value_buffer: [&str; EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS[EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS.len() - 1]] = [""; EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS[EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS.len() - 1]];
                             let data = edl_parser.parse_edl_online_file(trimmed_line, &mut online_file_value_buffer)?;
-
-                            match data {
-                                EDLValue::TableHeader(_, _) => {
-                                    // TODO: Maybe validate names of columns?
-                                    // TODO: Set state for event table width?
-                                }
-
-                                EDLValue::TableEntry(_, cells) => {
-                                    let online_file = EDLMediaFile::new(cells[0], cells[1]);
-                                    edl_session.files.online_files.push(online_file);
-                                }
-
-                                _ => panic!("failed to parse EDLValue token, an unexpected or invalid token was encountered when parsing an EDL online file entry"),
-                            }
+                            edl_parser.fill_online_files(&mut edl_session, &data);
                         }
 
                         else if current_section == EDLSection::OfflineFiles {
                             let mut offline_file_value_buffer: [&str; EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS[EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS.len() - 1]] = [""; EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS[EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS.len() - 1]];
                             let data = edl_parser.parse_edl_offline_file(trimmed_line, &mut offline_file_value_buffer)?;
-
-                            match data {
-                                EDLValue::TableHeader(_, _) => {
-                                    // TODO: Maybe validate names of columns?
-                                    // TODO: Set state for event table width?
-                                }
-
-                                EDLValue::TableEntry(_, cells) => {
-                                    let offline_file = EDLMediaFile::new(cells[0], cells[1]);
-                                    edl_session.files.offline_files.push(offline_file);
-                                }
-
-                                _ => panic!("failed to parse EDLValue token, an unexpected or invalid token was encountered when parsing an EDL offline file entry"),
-                            }
+                            edl_parser.fill_offline_files(&mut edl_session, &data);
                         }
 
                         else if current_section == EDLSection::OnlineClips {
                             let mut online_clip_value_buffer: [&str; EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS[EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS.len() - 1]] = [""; EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS[EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS.len() - 1]];
                             let data = edl_parser.parse_edl_online_clip(trimmed_line, &mut online_clip_value_buffer)?;
-
-                            match data {
-                                EDLValue::TableHeader(_, _) => {
-                                    // TODO: Maybe validate names of columns?
-                                    // TODO: Set state for event table width?
-                                }
-
-                                EDLValue::TableEntry(_, cells) => {
-                                    let online_clip = EDLClip::new(cells[0], cells[1]);
-                                    edl_session.files.online_clips.push(online_clip);
-                                }
-
-                                _ => panic!("failed to parse EDLValue token, an unexpected or invalid token was encountered when parsing an EDL online clip entry"),
-                            }
+                            edl_parser.fill_online_clips(&mut edl_session, &data);
                         }
 
                         else if current_section == EDLSection::TrackListing {
                             if let EDLValue::Field(_, field, value) = edl_parser.parse_edl_field(trimmed_line)? {
-                                if let Some(track) = &mut current_track {
-                                    match field {
-                                        EDLField::TrackName    => track.name    = value.to_string(),
-                                        EDLField::TrackComment => track.comment = value.to_string(),
-                                        EDLField::TrackDelay   => track.delay   = value.strip_suffix(" Samples").unwrap_or(value).parse::<u32>().expect("bit depth field must be valid integral number"),
-                                        EDLField::TrackState   => track.state   = (),
-                                        _ => eprintln!("parsing not implemented for field \"{:?}\" with value {}", field, value),
-                                    }
-                                }
-
-                                else if field == EDLField::TrackName {
-                                    current_track = Some(EDLTrack::with_name(value));
-                                }
-
-                                else {
-                                    panic!("cannot create a new EDLTrack without specifying a name first: the header of the current track, \"{}\", is most likely in the incorrect order.", value);
-                                }
+                                edl_parser.fill_track_listing(&mut current_track, &field, &value);
                             }
                         }
 
                         else if current_section == EDLSection::TrackEvent {
                             let mut event_value_buffer: [&str; EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS[EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS.len() - 1]] = [""; EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS[EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS.len() - 1]];
                             let data = edl_parser.parse_edl_track_event(trimmed_line, &mut event_value_buffer)?;
-                            match data {
-                                EDLValue::TableHeader(_, _) => {
-                                    // TODO: Maybe validate names of columns?
-                                    // TODO: Set state for event table width?
-                                }
-
-                                EDLValue::TableEntry(_, cells) => {
-                                    if let Some(track) = &mut current_track {
-                                        let event = EDLTrackEvent::from((cells, edl_session.fps));
-                                        track.events.push(event);
-                                    } 
-
-                                    else {
-                                        panic!("failed to parse EDLValue table event token because the current track was invalid");
-                                    }
-                                }
-
-                                _ => panic!("failed to parse EDLValue token, an unexpected or invalid token was encountered when parsing an EDL track event table"),
-                            }
+                            edl_parser.fill_track_events(&mut edl_session, &mut current_track, &data);
                         }
 
                         else if current_section == EDLSection::MarkersListing {
@@ -208,28 +129,7 @@ impl<'a> EDLParser<'a> {
                             // TODO: Find better way to ensure that line is not trimmed before
                             // being parsed
                             let data = edl_parser.parse_edl_marker_listing(line.as_str(), &mut marker_listing_value_buffer)?;
-
-                            match data {
-                                EDLValue::TableHeader(_, _) => {
-                                    // TODO: Maybe validate names of columns?
-                                    // TODO: Set state for event table width?
-                                }
-
-                                EDLValue::TableEntry(_, cells) => {
-                                    let marker = EDLMarker::new(
-                                        cells[0].trim().parse::<u32>().expect("marker listing ID must be a valid number"),
-                                        Timecode::from_str(cells[1].trim(), edl_session.fps).expect("marker listing timecode column must containt a valid timecode string"),
-                                        cells[2].trim().parse::<u32>().expect("marker listing time reference must be a valid number"),
-                                        EDLUnit::from_str(cells[3].trim()).expect("marker listing unit type must be a valid option"),
-                                        cells[4].trim().to_string(),
-                                        cells[5].trim().to_string(),
-                                    );
-
-                                    edl_session.markers.push(marker);
-                                }
-
-                                _ => panic!("failed to parse EDLValue token, an unexpected or invalid token was encountered when parsing an EDL marker listing entry"),
-                            }
+                            edl_parser.fill_marker_listings(&mut edl_session, &data);
                         }
                     }
                 }
@@ -242,6 +142,12 @@ impl<'a> EDLParser<'a> {
 
         Ok(edl_session)
     }
+
+///////////////////////////////////////////////////////////////////////////
+//
+//  -- @SECTION `EDLParser` Private Implementation --
+//
+///////////////////////////////////////////////////////////////////////////
 
     fn check_section(&mut self, line: &str) -> Option<(EDLSection, bool, bool)> {
         use EDLSection::*;
@@ -478,5 +384,137 @@ impl<'a> EDLParser<'a> {
         }
 
         None
+    }
+
+    fn fill_session_header(&self, edl_session: &mut EDLSession, field: &EDLField, value: &str) {
+        match field {
+            EDLField::SessionName           => edl_session.name             = value.to_string(),
+            EDLField::SessionSampleRate     => edl_session.sample_rate      = value.parse::<f32>().expect("sample rate field must be valid float-point number"),
+            EDLField::SessionBitDepth       => edl_session.bit_depth        = value.strip_suffix("-bit").unwrap_or(value).parse::<u32>().expect("bit depth field must be valid integral number"),
+            EDLField::SessionStartTimecode  => edl_session.start_timecode   = Timecode::from_str(value, FrameRate::default()).expect("session start timecode field must be a valid frame-rate string"),
+            EDLField::SessionTimecodeFormat => {
+                edl_session.fps = FrameRate::from_str(value.strip_suffix(Self::select_fps_suffix(value).unwrap()).expect("session timecode format must specify unit type")).expect("session timecode format field must be a valid frame-rate string");
+                edl_session.start_timecode.set_frame_rate(edl_session.fps);
+            },
+            EDLField::SessionNumAudioTracks => edl_session.num_audio_tracks = value.parse::<u32>().expect("number of audio tracks field must be valid integral number"),
+            EDLField::SessionNumAudioClips  => edl_session.num_audio_clips  = value.parse::<u32>().expect("number of audio clips field must be valid integral number"),
+            EDLField::SessionNumAudioFiles  => edl_session.num_audio_files  = value.parse::<u32>().expect("number of audio files field must be valid integral number"),
+            _ => eprintln!("parsing not implemented for field \"{:?}\" with value {}", field, value),
+        }
+
+    }
+
+    fn fill_online_files(&self, edl_session: &mut EDLSession, data: &EDLValue) {
+        match data {
+            EDLValue::TableHeader(_, _) => {
+                // TODO: Maybe validate names of columns?
+                // TODO: Set state for event table width?
+            }
+
+            EDLValue::TableEntry(_, cells) => {
+                let online_file = EDLMediaFile::new(cells[0], cells[1]);
+                edl_session.files.online_files.push(online_file);
+            }
+
+            _ => panic!("failed to parse EDLValue token, an unexpected or invalid token was encountered when parsing an EDL online file entry"),
+        }
+    }
+
+    fn fill_offline_files(&self, edl_session: &mut EDLSession, data: &EDLValue) {
+        match data {
+            EDLValue::TableHeader(_, _) => {
+                // TODO: Maybe validate names of columns?
+                // TODO: Set state for event table width?
+            }
+
+            EDLValue::TableEntry(_, cells) => {
+                let offline_file = EDLMediaFile::new(cells[0], cells[1]);
+                edl_session.files.offline_files.push(offline_file);
+            }
+
+            _ => panic!("failed to parse EDLValue token, an unexpected or invalid token was encountered when parsing an EDL offline file entry"),
+        }
+    }
+
+    fn fill_online_clips(&self, edl_session: &mut EDLSession, data: &EDLValue) {
+        match data {
+            EDLValue::TableHeader(_, _) => {
+                // TODO: Maybe validate names of columns?
+                // TODO: Set state for event table width?
+            }
+
+            EDLValue::TableEntry(_, cells) => {
+                let online_clip = EDLClip::new(cells[0], cells[1]);
+                edl_session.files.online_clips.push(online_clip);
+            }
+
+            _ => panic!("failed to parse EDLValue token, an unexpected or invalid token was encountered when parsing an EDL online clip entry"),
+        }
+    }
+
+    fn fill_track_listing(&self, current_track: &mut Option<EDLTrack>, field: &EDLField, value: &str) {
+        if let Some(track) = current_track {
+            match field {
+                EDLField::TrackName    => track.name    = value.to_string(),
+                EDLField::TrackComment => track.comment = value.to_string(),
+                EDLField::TrackDelay   => track.delay   = value.strip_suffix(" Samples").unwrap_or(value).parse::<u32>().expect("bit depth field must be valid integral number"),
+                EDLField::TrackState   => track.state   = (),
+                _ => eprintln!("parsing not implemented for field \"{:?}\" with value {}", field, value),
+            }
+        }
+
+        else if *field == EDLField::TrackName {
+            *current_track = Some(EDLTrack::with_name(value));
+        }
+
+        else {
+            panic!("cannot create a new EDLTrack without specifying a name first: the header of the current track, \"{}\", is most likely in the incorrect order.", value);
+        }
+    }
+
+    fn fill_track_events(&self, edl_session: &mut EDLSession, current_track: &mut Option<EDLTrack>, data: &EDLValue) {
+        match data {
+            EDLValue::TableHeader(_, _) => {
+                // TODO: Maybe validate names of columns?
+                // TODO: Set state for event table width?
+            }
+
+            EDLValue::TableEntry(_, cells) => {
+                if let Some(track) = current_track {
+                    let event = EDLTrackEvent::from((*cells, edl_session.fps));
+                    track.events.push(event);
+                } 
+
+                else {
+                    panic!("failed to parse EDLValue table event token because the current track was invalid");
+                }
+            }
+
+            _ => panic!("failed to parse EDLValue token, an unexpected or invalid token was encountered when parsing an EDL track event table"),
+        }
+    }
+
+    fn fill_marker_listings(&self, edl_session: &mut EDLSession, data: &EDLValue) {
+        match data {
+            EDLValue::TableHeader(_, _) => {
+                // TODO: Maybe validate names of columns?
+                // TODO: Set state for event table width?
+            }
+
+            EDLValue::TableEntry(_, cells) => {
+                let marker = EDLMarker::new(
+                    cells[0].trim().parse::<u32>().expect("marker listing ID must be a valid number"),
+                    Timecode::from_str(cells[1].trim(), edl_session.fps).expect("marker listing timecode column must containt a valid timecode string"),
+                    cells[2].trim().parse::<u32>().expect("marker listing time reference must be a valid number"),
+                    EDLUnit::from_str(cells[3].trim()).expect("marker listing unit type must be a valid option"),
+                    cells[4].trim().to_string(),
+                    cells[5].trim().to_string(),
+                    );
+
+                edl_session.markers.push(marker);
+            }
+
+            _ => panic!("failed to parse EDLValue token, an unexpected or invalid token was encountered when parsing an EDL marker listing entry"),
+        }
     }
 }
