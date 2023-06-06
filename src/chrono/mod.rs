@@ -1,3 +1,6 @@
+// Copyright (C) Stefan Olivier
+// <https://stefanolivier.com>
+
 mod formats;
 mod timecode;
 

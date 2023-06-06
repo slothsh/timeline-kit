@@ -1,3 +1,6 @@
+// Copyright (C) Stefan Olivier
+// <https://stefanolivier.com>
+
 #![allow(dead_code, unused_variables)]
 
 use std::{fmt::Display, write, ops::Rem};

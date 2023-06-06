@@ -1,187 +1,22 @@
-#![allow(unused_imports, unused_variables, unused_mut, dead_code)]
+// Copyright (C) Stefan Olivier
+// <https://stefanolivier.com>
 
-use encoding_rs_io::DecodeReaderBytesBuilder;
 use std::io::{BufRead, BufReader};
 use std::fs::File;
 use std::{println, marker};
+
+use encoding_rs_io::DecodeReaderBytesBuilder;
+
+use crate::edl::protools::*;
 use crate::chrono::Timecode;
 use crate::chrono::FrameRate;
 
-const EDL_HEADER_LINE_SIZE: u32 = 8;
-const EDL_TRACK_LISTING_LINE_SIZE: u32 = 4;
-const EDL_SECTION_TERMINATOR_LENGTH: u32 = 2;
-const EDL_FIELD_PARTS_LENGTH: u32 = 2;
-const EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS: [usize; 4] = [2, 6, 7, 8];
-const EDLPARSER_MASK_SECTION_PLUGINSLISTING: u8 = 0b00000001;
 
-const EDLSECTION_SIZE: usize = EDLSection::Ignore as usize + 1;
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
-enum EDLSection {
-    Header,
-    PluginsListing,
-    OnlineFiles,
-    OfflineFiles,
-    OnlineClips,
-    TrackListing,
-    TrackEvent,
-    MarkersListing,
-    #[default]
-    Ignore,
-}
-
-impl EDLSection {
-    fn section_name(&self) -> &'static str {
-        match self {
-            EDLSection::Header => "__header__",
-            EDLSection::PluginsListing => "P L U G - I N S  L I S T I N G",
-            EDLSection::OnlineFiles => "O N L I N E  F I L E S  I N  S E S S I O N",
-            EDLSection::OfflineFiles => "O F F L I N E  F I L E S  I N  S E S S I O N",
-            EDLSection::OnlineClips => "O N L I N E  C L I P S  I N  S E S S I O N",
-            EDLSection::TrackListing => "T R A C K  L I S T I N G",
-            EDLSection::TrackEvent => "__track_event__",
-            EDLSection::MarkersListing => "M A R K E R S  L I S T I N G",
-            EDLSection::Ignore => "__ignore__",
-        }
-    }
-
-    const fn all_variants() -> &'static [EDLSection; EDLSECTION_SIZE] {
-        use EDLSection::*;
-        &[
-            Header,
-            PluginsListing,
-            OnlineFiles,
-            OfflineFiles,
-            OnlineClips,
-            TrackListing,
-            TrackEvent,
-            MarkersListing,
-            Ignore,
-        ]
-    }
-
-    const fn as_usize(self) -> usize {
-        self as usize
-    }
-}
-
-const EDLTRACKEVENTCOLUMN_SIZE: usize = EDLTrackEventColumn::State as usize + 1;
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
-enum EDLTrackEventColumn {
-    Channel,
-    Event,
-    ClipName,
-    StartTime,
-    EndTime,
-    Duration,
-    Timestamp,
-    State,
-}
-
-const EDLFIELD_SIZE: usize = EDLField::Unknown as usize + 1;
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
-enum EDLField {
-    SessionName,
-    SessionSampleRate,
-    SessionBitDepth,
-    SessionStartTimecode,
-    SessionTimecodeFormat,
-    SessionNumAudioTracks,
-    SessionNumAudioClips,
-    SessionNumAudioFiles,
-    TrackName,
-    TrackComment,
-    TrackDelay,
-    TrackState,
-    Unknown,
-}
-
-impl EDLField {
-    fn field_name(&self) -> &'static str {
-        match self {
-            EDLField::SessionName => "SESSION NAME",
-            EDLField::SessionSampleRate => "SAMPLE RATE",
-            EDLField::SessionBitDepth => "BIT DEPTH",
-            EDLField::SessionStartTimecode => "SESSION START TIMECODE",
-            EDLField::SessionTimecodeFormat => "TIMECODE FORMAT",
-            EDLField::SessionNumAudioTracks => "# OF AUDIO TRACKS",
-            EDLField::SessionNumAudioClips => "# OF AUDIO CLIPS",
-            EDLField::SessionNumAudioFiles => "# OF AUDIO FILES",
-            EDLField::TrackName => "TRACK NAME",
-            EDLField::TrackComment => "COMMENTS",
-            EDLField::TrackDelay => "USER DELAY",
-            EDLField::TrackState => "STATE",
-            EDLField::Unknown => "__unknown__",
-        }
-    }
-
-    const fn all_variants() -> &'static [EDLField; EDLFIELD_SIZE] {
-        use EDLField::*;
-        &[
-            SessionName,
-            SessionSampleRate,
-            SessionBitDepth,
-            SessionStartTimecode,
-            SessionTimecodeFormat,
-            SessionNumAudioTracks,
-            SessionNumAudioClips,
-            SessionNumAudioFiles,
-            TrackName,
-            TrackComment,
-            TrackDelay,
-            TrackState,
-            Unknown,
-        ]
-    }
-
-    const fn is_voidable(&self) -> bool {
-        use EDLField::*;
-        match self {
-            TrackComment => true,
-            TrackState => true,
-            Unknown => true,
-            _ => false,
-        }
-    }
-}
-
-impl EDLTrackEventColumn {
-    fn column_name(&self) -> &'static str {
-        match self {
-            EDLTrackEventColumn::Channel => "CHANNEL",
-            EDLTrackEventColumn::Event => "EVENT",
-            EDLTrackEventColumn::ClipName => "CLIP NAME",
-            EDLTrackEventColumn::StartTime => "START TIME",
-            EDLTrackEventColumn::EndTime => "END TIME",
-            EDLTrackEventColumn::Duration => "DURATION",
-            EDLTrackEventColumn::Timestamp => "TIMESTAMP",
-            EDLTrackEventColumn::State => "STATE",
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-enum EDLValue<'a> {
-    Field(EDLSection, EDLField, &'a str),
-    TableHeader(EDLSection, &'a [&'a str; EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS[EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS.len() - 1]]),
-    TableEntry(EDLSection, &'a [&'a str; EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS[EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS.len() - 1]]),
-}
-
-#[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Clone)]
-pub enum EDLUnit {
-    // TODO: Figure out what other units are acceptable
-    // in Protools EDL
-    #[default]
-    Samples,
-}
-
-impl EDLUnit {
-    pub fn from_str(unit_string: &str) -> Option<Self> {
-        match unit_string.trim() {
-            "Samples" => Some(EDLUnit::Samples),
-            _ => None,
-        }
-    }
-}
+///////////////////////////////////////////////////////////////////////////
+//
+//  -- @SECTION `EDLParser` Implementation --
+//
+///////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Default)]
 pub struct EDLParser<'a> {
@@ -247,7 +82,7 @@ impl<'a> EDLParser<'a> {
                         edl_parser.section_position += 1;
 
                         if current_section == EDLSection::Header {
-                            if let EDLValue::Field(section, field, value) = edl_parser.parse_edl_field(trimmed_line)? {
+                            if let EDLValue::Field(_, field, value) = edl_parser.parse_edl_field(trimmed_line)? {
                                 match field {
                                     EDLField::SessionName           => edl_session.name             = value.to_string(),
                                     EDLField::SessionSampleRate     => edl_session.sample_rate      = value.parse::<f32>().expect("sample rate field must be valid float-point number"),
@@ -270,12 +105,12 @@ impl<'a> EDLParser<'a> {
                             let data = edl_parser.parse_edl_online_file(trimmed_line, &mut online_file_value_buffer)?;
 
                             match data {
-                                EDLValue::TableHeader(section, columns) => {
+                                EDLValue::TableHeader(_, _) => {
                                     // TODO: Maybe validate names of columns?
                                     // TODO: Set state for event table width?
                                 }
 
-                                EDLValue::TableEntry(section, cells) => {
+                                EDLValue::TableEntry(_, cells) => {
                                     let online_file = EDLMediaFile::new(cells[0], cells[1]);
                                     edl_session.files.online_files.push(online_file);
                                 }
@@ -289,12 +124,12 @@ impl<'a> EDLParser<'a> {
                             let data = edl_parser.parse_edl_offline_file(trimmed_line, &mut offline_file_value_buffer)?;
 
                             match data {
-                                EDLValue::TableHeader(section, columns) => {
+                                EDLValue::TableHeader(_, _) => {
                                     // TODO: Maybe validate names of columns?
                                     // TODO: Set state for event table width?
                                 }
 
-                                EDLValue::TableEntry(section, cells) => {
+                                EDLValue::TableEntry(_, cells) => {
                                     let offline_file = EDLMediaFile::new(cells[0], cells[1]);
                                     edl_session.files.offline_files.push(offline_file);
                                 }
@@ -308,12 +143,12 @@ impl<'a> EDLParser<'a> {
                             let data = edl_parser.parse_edl_online_clip(trimmed_line, &mut online_clip_value_buffer)?;
 
                             match data {
-                                EDLValue::TableHeader(section, columns) => {
+                                EDLValue::TableHeader(_, _) => {
                                     // TODO: Maybe validate names of columns?
                                     // TODO: Set state for event table width?
                                 }
 
-                                EDLValue::TableEntry(section, cells) => {
+                                EDLValue::TableEntry(_, cells) => {
                                     let online_clip = EDLClip::new(cells[0], cells[1]);
                                     edl_session.files.online_clips.push(online_clip);
                                 }
@@ -323,7 +158,7 @@ impl<'a> EDLParser<'a> {
                         }
 
                         else if current_section == EDLSection::TrackListing {
-                            if let EDLValue::Field(section, field, value) = edl_parser.parse_edl_field(trimmed_line)? {
+                            if let EDLValue::Field(_, field, value) = edl_parser.parse_edl_field(trimmed_line)? {
                                 if let Some(track) = &mut current_track {
                                     match field {
                                         EDLField::TrackName    => track.name    = value.to_string(),
@@ -348,14 +183,14 @@ impl<'a> EDLParser<'a> {
                             let mut event_value_buffer: [&str; EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS[EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS.len() - 1]] = [""; EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS[EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS.len() - 1]];
                             let data = edl_parser.parse_edl_track_event(trimmed_line, &mut event_value_buffer)?;
                             match data {
-                                EDLValue::TableHeader(section, columns) => {
+                                EDLValue::TableHeader(_, _) => {
                                     // TODO: Maybe validate names of columns?
                                     // TODO: Set state for event table width?
                                 }
 
-                                EDLValue::TableEntry(section, cells) => {
+                                EDLValue::TableEntry(_, cells) => {
                                     if let Some(track) = &mut current_track {
-                                        let event = EDLEvent::from((cells, edl_session.fps));
+                                        let event = EDLTrackEvent::from((cells, edl_session.fps));
                                         track.events.push(event);
                                     } 
 
@@ -375,12 +210,12 @@ impl<'a> EDLParser<'a> {
                             let data = edl_parser.parse_edl_marker_listing(line.as_str(), &mut marker_listing_value_buffer)?;
 
                             match data {
-                                EDLValue::TableHeader(section, columns) => {
+                                EDLValue::TableHeader(_, _) => {
                                     // TODO: Maybe validate names of columns?
                                     // TODO: Set state for event table width?
                                 }
 
-                                EDLValue::TableEntry(section, cells) => {
+                                EDLValue::TableEntry(_, cells) => {
                                     let marker = EDLMarker::new(
                                         cells[0].trim().parse::<u32>().expect("marker listing ID must be a valid number"),
                                         Timecode::from_str(cells[1].trim(), edl_session.fps).expect("marker listing timecode column must containt a valid timecode string"),
@@ -644,182 +479,4 @@ impl<'a> EDLParser<'a> {
 
         None
     }
-}
-
-#[derive(Debug, Default)]
-pub struct EDLSession {
-    pub name: String,
-    pub sample_rate: f32,
-    pub bit_depth: u32,
-    pub start_timecode: Timecode,
-    pub fps: FrameRate,
-    pub num_audio_tracks: u32,
-    pub num_audio_clips: u32,
-    pub num_audio_files: u32,
-    pub files: EDLFileList,
-    pub markers: Vec<EDLMarker>,
-    pub tracks: Vec<EDLTrack>,
-}
-
-impl EDLSession {
-    pub fn new() -> Self {
-        Self {
-            name: "".to_string(),
-            sample_rate: 0.0,
-            bit_depth: 0,
-            start_timecode: Timecode::with_fps(FrameRate::default()),
-            fps: FrameRate::default(),
-            num_audio_tracks: 0,
-            num_audio_clips: 0,
-            num_audio_files: 0,
-            files: EDLFileList::default(),
-            markers: Vec::<EDLMarker>::default(),
-            tracks: Vec::<EDLTrack>::with_capacity(16),
-        }
-    }
-}
-
-#[derive(Debug, Default, PartialEq, PartialOrd, Ord, Clone, Eq)]
-pub struct EDLMediaFile {
-    pub file_name: String,
-    pub location: String,
-}
-
-impl EDLMediaFile {
-    pub fn new(file_name: &str, location: &str) -> Self {
-        Self {
-            file_name: file_name.to_string(),
-            location: location.to_string(),
-        }
-    }
-}
-
-#[derive(Debug, Default, PartialEq, PartialOrd, Ord, Clone, Eq)]
-pub struct EDLClip {
-    pub clip_name: String,
-    pub source_file: String,
-}
-
-impl EDLClip {
-    pub fn new(clip_name: &str, source_file: &str) -> Self {
-        Self {
-            clip_name: clip_name.to_string(),
-            source_file: source_file.to_string(),
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, PartialOrd, Ord, Clone, Eq)]
-pub struct EDLFileList {
-    pub online_files: Vec<EDLMediaFile>,
-    pub offline_files: Vec<EDLMediaFile>,
-    pub online_clips: Vec<EDLClip>,
-}
-
-impl Default for EDLFileList {
-    fn default() -> Self {
-        Self {
-            online_files: Vec::<_>::default(),
-            offline_files: Vec::<_>::default(),
-            online_clips: Vec::<_>::default(),
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, PartialOrd, Ord, Clone, Eq)]
-pub struct EDLTrack {
-    pub name: String,
-    pub comment: String,
-    pub delay: u32,
-    pub state: (),
-    pub events: Vec<EDLEvent>,
-}
-
-impl EDLTrack {
-    pub fn new() -> Self {
-        Self {
-            name: "".to_string(),
-            comment: "".to_string(),
-            delay: 0,
-            state: (),
-            events: Vec::<EDLEvent>::with_capacity(16),
-        }
-    }
-
-    pub fn with_name(name: &str) -> Self {
-        Self {
-            name: name.to_string(),
-            ..Self::new()
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, PartialOrd, Ord, Clone, Eq)]
-pub struct EDLEvent {
-    pub channel: u32,
-    pub event: u32,
-    pub name: String,
-    pub time_in: Timecode,
-    pub time_out: Timecode,
-    pub state: bool,
-}
-
-impl EDLEvent {
-    pub fn new() -> Self {
-        Self {
-            channel: 0,
-            event: 0,
-            name: "".to_string(),
-            time_in: Timecode::default(),
-            time_out: Timecode::default(),
-            state: false,
-        }
-    }
-}
-
-impl<'a> From<(&'a [&'a str; EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS[EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS.len() - 1]], FrameRate)> for EDLEvent {
-    fn from((event_values, frame_rate): (&'a [&'a str; EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS[EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS.len() - 1]], FrameRate)) -> Self {
-        let state_index = EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS.len() - 1;
-        Self {
-            channel: event_values[0].parse::<u32>().expect("first column of event entry must be a valid number"),
-            event: event_values[1].parse::<u32>().expect("second column of event entry must be a valid number"),
-            name: event_values[2].to_string(),
-            time_in: Timecode::from_str(event_values[3], frame_rate).expect("timecode-in column of event entry must be a valid timecode string"),
-            time_out: Timecode::from_str(event_values[4], frame_rate).expect("timecode-out column of event entry must be a valid timecode string"),
-            state: event_values.as_slice()[state_index..]
-                               .iter()
-                               .take(1)
-                               .map(|&v| if v == "Unmuted" { true } else { false })
-                               .nth(0)
-                               .expect(format!("track event value must be one of either \"Muted\" or \"Unmuted\", but instead found: {}", event_values[6]).as_str())
-        }
-    }
-}
-
-#[derive(Debug, Default, PartialEq, PartialOrd, Ord, Clone, Eq)]
-pub struct EDLMarker {
-    pub id: u32,
-    pub location: Timecode,
-    pub time_reference: u32,
-    pub unit: EDLUnit,
-    pub name: String,
-    pub comment: String,
-}
-
-impl EDLMarker {
-    pub fn new(id: u32, location: Timecode, time_reference: u32, unit: EDLUnit, name: String, comment: String) -> Self {
-        Self {
-            id,
-            location,
-            time_reference,
-            unit,
-            name,
-            comment,
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
 }

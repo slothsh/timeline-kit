@@ -1,6 +1,7 @@
-#![allow(dead_code)]
+// Copyright (C) Stefan Olivier
+// <https://stefanolivier.com>
 
-use std::fmt::{Display, write};
+#![allow(dead_code)]
 
 // Video Format Specifiers
 #[derive(Debug, Default, PartialOrd, Ord, PartialEq, Eq, Clone, Copy)]

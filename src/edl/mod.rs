@@ -1,10 +1,13 @@
-mod protools_edl;
+// Copyright (C) Stefan Olivier
+// <https://stefanolivier.com>
 
-pub use protools_edl::{
+mod protools;
+
+pub use protools::{
     EDLParser as EDLProtoolsParser,
     EDLSession as EDLProtoolsSession,
     EDLTrack as EDLProtoolsTrack,
-    EDLEvent as EDLProtoolsEvent,
+    EDLTrackEvent as EDLProtoolsEvent,
 };
 
 pub mod encoding {
