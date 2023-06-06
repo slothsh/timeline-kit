@@ -74,6 +74,7 @@ const TC_STRING_TICKS_GROUP_SIZE: usize = 3;
 const TC_STRING_REGULAR_LENGTH: usize = TC_TOTAL_GROUPS * TC_STRING_REGULAR_GROUP_SIZE + (TC_TOTAL_GROUPS - 1);
 
 // TODO: Doc comments
+const TC_TOTAL_GROUPS_MINSEC: usize = 2;
 const TC_REGULAR_TOTAL_GROUPS: usize = TC_TOTAL_GROUPS - 1;
 const TC_STRING_DELIMITER_COLON: char = ':';
 const TC_STRING_DELIMITER_SEMICOLON: char = ';';
@@ -170,7 +171,11 @@ impl Timecode {
             .map(|c| c.parse::<TimecodeScalar>().expect("timecode string parts must be a valid TimecodeScalar"));
 
         let total_parts = parts.clone().count();
-        if total_parts != TC_TOTAL_GROUPS && total_parts != TC_REGULAR_TOTAL_GROUPS {
+
+        if total_parts != TC_TOTAL_GROUPS
+           && total_parts != TC_REGULAR_TOTAL_GROUPS
+           && total_parts != TC_TOTAL_GROUPS_MINSEC
+        {
             // TODO: Change to more meaningful error
             return Err(());
         }
