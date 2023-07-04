@@ -10,9 +10,11 @@ use std::{println, marker};
 use encoding_rs_io::DecodeReaderBytesBuilder;
 
 use crate::edl::protools::*;
-use crate::chrono::Timecode;
-use crate::chrono::FrameRate;
-
+use crate::chrono::{
+    BitDepth,
+    FrameRate,
+    Timecode
+};
 
 ///////////////////////////////////////////////////////////////////////////
 //
@@ -29,7 +31,6 @@ pub struct EDLParser<'a> {
     trailing_new_lines: usize,
     current_section: EDLSection,
     previous_section: EDLSection,
-    section_ended: bool,
 }
 
 ///////////////////////////////////////////////////////////////////////////
@@ -46,7 +47,6 @@ impl<'a> EDLParser<'a> {
         let mut edl_parser = EDLParser {
             file_path: input_path,
             current_section: EDLSection::Header,
-            section_ended: false,
             ..EDLParser::default()
         };
 
@@ -68,27 +68,14 @@ impl<'a> EDLParser<'a> {
                     if trimmed_line == "" { edl_parser.trailing_new_lines += 1; }
 
                     let (current_section, skip_line, reset_section) = edl_parser.check_section(trimmed_line)
-                        .unwrap_or((EDLSection::Ignore, true, edl_parser.trailing_new_lines >= EDL_SECTION_TERMINATOR_LENGTH as usize));
+                        .expect(format!("EDL file layout must be valid to parse - the error occurred at line {}: {}", edl_parser.file_position, trimmed_line).as_str());
 
-                    if current_section != EDLSection::Ignore { edl_parser.current_section = current_section; edl_parser.section_ended = false; }
-                    else { edl_parser.section_ended = true; }
+                    if current_section != EDLSection::Ignore { edl_parser.current_section = current_section; }
 
                     if reset_section {
-                        edl_parser.section_position = 0;
-                        edl_parser.trailing_new_lines = 0;
-                        edl_parser.section_ended = false;
-
-                        if edl_parser.current_section == EDLSection::TrackEvent {
-                            if let Some(track) = &current_track {
-                                edl_session.tracks.push(track.clone());
-                            }
-
-                            current_track = None;
-                        }
-
-                        if edl_parser.current_section == EDLSection::PluginsListing {
-                            current_plugin_manufacturer = None;
-                        }
+                        edl_parser.reset_section(&mut edl_session,
+                                                 &mut current_track,
+                                                 &mut current_plugin_manufacturer);
                     }
 
                     if !skip_line {
@@ -132,24 +119,24 @@ impl<'a> EDLParser<'a> {
                             // TODO: names for index values
 
                             current_plugin_manufacturer = 
-                            if let EDLValue::TableEntry(section, cells) = data {
-                                match &current_plugin_manufacturer {
-                                    Some(previous_manufacturer) => {
-                                        if cells[0] != "" && cells[0] != previous_manufacturer {
-                                            Some(cells[0])
-                                        }
-                                        
-                                        else {
-                                            // TODO
-                                        }
-                                    },
-                                    None => Some(),
+                                if let EDLValue::TableEntry(_, cells) = data {
+                                    match &current_plugin_manufacturer {
+                                        Some(previous_manufacturer) => {
+                                            if cells[0] != "" && cells[0] != previous_manufacturer {
+                                                Some(cells[0].to_string())
+                                            }
+                                            
+                                            else {
+                                                Some(previous_manufacturer.clone())
+                                            }
+                                        },
+                                        None => Some(cells[0].to_string()),
+                                    }
                                 }
-                            }
-
-                            else {
-                                None
-                            };
+                                
+                                else {
+                                    None
+                                };
 
                             edl_parser.fill_plugin_list(&mut edl_session, &data, &current_plugin_manufacturer);
                         }
@@ -173,6 +160,7 @@ impl<'a> EDLParser<'a> {
                 Err(error) => panic!("error: could not read line: {}", error),
             }
 
+
             edl_parser.file_position += 1;
         }
 
@@ -188,10 +176,14 @@ impl<'a> EDLParser<'a> {
     fn check_section(&mut self, line: &str) -> Option<(EDLSection, bool, bool)> {
         use EDLSection::*;
         // let reset_section = if self.trailing_new_lines >= EDL_SECTION_TERMINATOR_LENGTH as usize { true } else { false };
-
+        
         // An empty line should be ignored
+        if self.trailing_new_lines >= EDL_SECTION_TERMINATOR_LENGTH as usize {
+            return Some((self.current_section, true, true));
+        }
+
         if line == "" {
-            return None;
+            return Some((Ignore, true, false));
         }
 
         // Verify if overall file position is is less than the entire EDL Header section
@@ -211,8 +203,6 @@ impl<'a> EDLParser<'a> {
                 return Some((*section_variant, true, true));
             }
         }
-
-        if self.section_ended { return Some((self.current_section, true, false)); }
 
         if self.current_section == OnlineFiles {
             return Some((OnlineFiles, false, false))
@@ -431,6 +421,23 @@ impl<'a> EDLParser<'a> {
         false
     }
 
+    fn reset_section(&mut self, current_session: &mut EDLSession, current_track: &mut Option<EDLTrack>, current_plugin_manufacturer: &mut Option<String>) {
+        self.section_position = 0;
+        self.trailing_new_lines = 0;
+
+        if self.current_section == EDLSection::TrackEvent {
+            if let Some(track) = &current_track {
+                current_session.tracks.push(track.clone());
+            }
+
+            *current_track = Option::<EDLTrack>::None;
+        }
+
+        if self.current_section == EDLSection::PluginsListing {
+            *current_plugin_manufacturer = Option::<String>::None;
+        }
+    }
+
     fn select_fps_suffix(fps_string: &str) -> Option<&str> {
         // The order matters here, make sure to test for
         // longer suffixes first, otherwise it we get a
@@ -450,14 +457,15 @@ impl<'a> EDLParser<'a> {
         match field {
             EDLField::SessionName           => edl_session.name             = value.to_string(),
             EDLField::SessionSampleRate     => edl_session.sample_rate      = value.parse::<f32>().expect("sample rate field must be valid float-point number"),
-            EDLField::SessionBitDepth       => edl_session.bit_depth        = value.strip_suffix("-bit").unwrap_or(value).parse::<u32>().expect("bit depth field must be valid integral number"),
+            EDLField::SessionBitDepth       => edl_session.bit_depth        = BitDepth::parse_field(value).expect("bit depth field must have a valid format"),
             EDLField::SessionStartTimecode  => edl_session.start_timecode   = Timecode::from_str(value, FrameRate::default()).expect("session start timecode field must be a valid frame-rate string"),
             EDLField::SessionNumAudioTracks => edl_session.num_audio_tracks = value.parse::<u32>().expect("number of audio tracks field must be valid integral number"),
             EDLField::SessionNumAudioClips  => edl_session.num_audio_clips  = value.parse::<u32>().expect("number of audio clips field must be valid integral number"),
             EDLField::SessionNumAudioFiles  => edl_session.num_audio_files  = value.parse::<u32>().expect("number of audio files field must be valid integral number"),
 
             EDLField::SessionTimecodeFormat => {
-                edl_session.fps = FrameRate::from_str(value.strip_suffix(Self::select_fps_suffix(value).unwrap()).expect("session timecode format must specify unit type")).expect("session timecode format field must be a valid frame-rate string");
+                // edl_session.fps = FrameRate::parse_field(value.strip_suffix(Self::select_fps_suffix(value).unwrap()).expect("session timecode format must specify unit type")).expect("session timecode format field must be a valid frame-rate string");
+                edl_session.fps = FrameRate::parse_field(value).expect("session timecode format field must be a valid frame-rate string");
                 edl_session.start_timecode.set_frame_rate(edl_session.fps);
             },
 

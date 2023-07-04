@@ -1,0 +1,15 @@
+
+// Copyright (C) Stefan Olivier
+// <https://stefanolivier.com>
+
+use crate::chrono::BitDepth;
+
+///////////////////////////////////////////////////////////////////////////
+//
+//  -- @SECTION `EDLParser` Traits --
+//
+///////////////////////////////////////////////////////////////////////////
+
+pub trait ParseField<T> {
+    fn parse_field(field_string: &str) -> Option<T>;
+}

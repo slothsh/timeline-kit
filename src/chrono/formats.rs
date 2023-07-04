@@ -3,6 +3,8 @@
 
 #![allow(dead_code)]
 
+use crate::edl::EDLParseField;
+
 // Video Format Specifiers
 #[derive(Debug, Default, PartialOrd, Ord, PartialEq, Eq, Clone, Copy)]
 pub enum FrameRate {
@@ -28,20 +30,22 @@ impl FrameRate {
             &FrameRate::Fps120 => 120.0,
         }
     }
+}
 
-    pub fn from_str(fps_string: &str) -> Result<Self, ()> { // TODO: Better error reporting
+impl EDLParseField<Self> for FrameRate {
+    fn parse_field(fps_string: &str) -> Option<Self> { // TODO: Better error reporting
         match fps_string.trim() {
-            "23.976" => Ok(FrameRate::Fps24(true)),
-            "24" => Ok(FrameRate::Fps24(false)),
-            "25" => Ok(FrameRate::Fps25),
-            "29.97" => Ok(FrameRate::Fps30(true)),
-            "30" => Ok(FrameRate::Fps30(false)),
-            "48" => Ok(FrameRate::Fps48),
-            "50" => Ok(FrameRate::Fps50),
-            "59.94" => Ok(FrameRate::Fps60(true)),
-            "60" => Ok(FrameRate::Fps60(false)),
-            "120" => Ok(FrameRate::Fps120),
-            _ => Err(()),
+            "23.976 Drop Frame" => Some(FrameRate::Fps24(true)),
+            "24 Frame" => Some(FrameRate::Fps24(false)),
+            "25 Frame" => Some(FrameRate::Fps25),
+            "29.97 Drop Frame" => Some(FrameRate::Fps30(true)),
+            "30 Frame" => Some(FrameRate::Fps30(false)),
+            "48 Frame" => Some(FrameRate::Fps48),
+            "50 Frame" => Some(FrameRate::Fps50),
+            "59.94 Drop Frame" => Some(FrameRate::Fps60(true)),
+            "60 Frame" => Some(FrameRate::Fps60(false)),
+            "120 Frame" => Some(FrameRate::Fps120),
+            _ => None,
         }
     }
 }
@@ -63,13 +67,29 @@ pub enum SampleRate {
     Khz192,
 }
 
-#[derive(Debug, PartialOrd, Ord, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Default, PartialOrd, Ord, PartialEq, Eq, Clone, Copy)]
 pub enum BitDepth {
     Bit8,
+    #[default]
     Bit16,
     Bit24,
     Bit32,
     Bit32Float,
     Bit64,
     Bit64Float,
+}
+
+impl EDLParseField<Self> for BitDepth {
+    fn parse_field(field_string: &str) -> Option<Self> {
+        match field_string.trim() {
+            "8-bit" => Some(BitDepth::Bit8),
+            "16-bit" => Some(BitDepth::Bit16),
+            "24-bit" => Some(BitDepth::Bit24),
+            "32-bit" => Some(BitDepth::Bit32),
+            "32-bit float" => Some(BitDepth::Bit32Float),
+            "64-bit" => Some(BitDepth::Bit64),
+            "64-bit float" => Some(BitDepth::Bit64Float),
+            _ => None,
+        }
+    }
 }

@@ -6,6 +6,7 @@ mod protools;
 pub use protools::{
     EDLParser as EDLProtoolsParser,
     EDLSession as EDLProtoolsSession,
+    ParseField as EDLParseField,
 };
 
 pub mod encoding {
