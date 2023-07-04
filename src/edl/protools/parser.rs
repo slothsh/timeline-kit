@@ -128,8 +128,30 @@ impl<'a> EDLParser<'a> {
                             let mut plugin_list_value_buffer: [&str; EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS[EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS.len() - 1]] = [""; EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS[EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS.len() - 1]];
                             // TODO: Find better way to ensure that line is not trimmed before
                             // being parsed
-                            let data = edl_parser.parse_edl_plugin_listing(line.as_str(), &mut plugin_list_value_buffer, &mut current_plugin_manufacturer)?;
-                            edl_parser.fill_plugin_list(&mut edl_session, &data);
+                            let data = edl_parser.parse_edl_plugin_listing(line.as_str(), &mut plugin_list_value_buffer)?;
+                            // TODO: names for index values
+
+                            current_plugin_manufacturer = 
+                            if let EDLValue::TableEntry(section, cells) = data {
+                                match &current_plugin_manufacturer {
+                                    Some(previous_manufacturer) => {
+                                        if cells[0] != "" && cells[0] != previous_manufacturer {
+                                            Some(cells[0])
+                                        }
+                                        
+                                        else {
+                                            // TODO
+                                        }
+                                    },
+                                    None => Some(),
+                                }
+                            }
+
+                            else {
+                                None
+                            };
+
+                            edl_parser.fill_plugin_list(&mut edl_session, &data, &current_plugin_manufacturer);
                         }
 
                         else if current_section == EDLSection::TrackEvent {
@@ -316,27 +338,13 @@ impl<'a> EDLParser<'a> {
         Err(format!("edl online clip entry could not be parsed, either because there aren't enough columns, or because an invalid format was encountered: this was the event that caused an error: {:?}", line))
     }
 
-    fn parse_edl_plugin_listing<'z>(&mut self, line: &'z str, plugin_listing_value_buffer: &'z mut [&'z str; EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS[EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS.len() - 1]], previous_plugin_manufacturer: &'z mut Option<String>) -> Result<EDLValue<'z>, String> {
+    fn parse_edl_plugin_listing<'z>(&mut self, line: &'z str, plugin_listing_value_buffer: &'z mut [&'z str; EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS[EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS.len() - 1]]) -> Result<EDLValue<'z>, String> {
         let plugin_listing_cells = line.split("\t").collect::<Vec<&'z str>>();
 
         if EDLParser::is_valid_event_table_column_width(plugin_listing_cells.len()) {
             for (i, value) in plugin_listing_cells.iter().enumerate() {
-                if i == 0 && self.section_position > 1 && value.trim() == "" {
-                    match &*previous_plugin_manufacturer {
-                        // TODO: Better way to do this?
-                        Some(manufacturer) => {
-                            *previous_plugin_manufacturer = Some(manufacturer.clone());
-                        },
+                plugin_listing_value_buffer[i] = value.trim();
 
-                        None => {
-                            *previous_plugin_manufacturer = Some(String::from_str(value.trim()).expect("manufacturer string slice must be a valid string"));
-                        }
-                    }
-                }
-
-                else {
-                    plugin_listing_value_buffer[i] = value.trim();
-                }
             }
 
             const SECTION: usize = EDLSection::PluginsListing.as_usize();
@@ -593,7 +601,7 @@ impl<'a> EDLParser<'a> {
         }
     }
 
-    fn fill_plugin_list(&self, edl_session: &mut EDLSession, data: &EDLValue) {
+    fn fill_plugin_list(&self, edl_session: &mut EDLSession, data: &EDLValue, previous_manufacturer: &Option<String>) {
         match data {
             EDLValue::TableHeader(_, _) => {
                 // TODO: Maybe validate names of columns?
@@ -602,7 +610,7 @@ impl<'a> EDLParser<'a> {
 
             EDLValue::TableEntry(_, cells) => {
                 let plugin = EDLPlugin {
-                    manufacturer: cells[0].to_string(),
+                    manufacturer: cells.into_iter().take(1).map(|v: &&str| { if v.trim() == "" { previous_manufacturer.as_deref().unwrap_or("<Unknown>").to_string() } else { v.to_string() } }).collect::<String>(),
                     name: cells[1].to_string(),
                     version: cells[2].to_string(),
                     format: EDLPluginFormat::from_str(cells[3]).expect("plugin listing format column must be a valid option"),
