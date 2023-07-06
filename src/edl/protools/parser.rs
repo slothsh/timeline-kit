@@ -179,6 +179,15 @@ impl<'a> EDLParser<'a> {
     }
 
     fn parse_plugins_listing(&self, raw_plugins_listings_lines: &mut Vec<(usize, String)>, edl_session: &mut EDLSession) -> Option<()> {
+        println!("{:?}", raw_plugins_listings_lines);
+        edl_session.plugins = EDLPlugin::parse_table(
+            raw_plugins_listings_lines
+                .as_slice()
+                .into_iter()
+                .map(|(_, v)| v.clone())
+                .collect::<Vec<_>>()
+                .as_slice()
+        ).expect("EDL plugins listing table should contain valid data");
         None
     }
 

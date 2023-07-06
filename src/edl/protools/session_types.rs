@@ -154,7 +154,36 @@ pub struct EDLPlugin {
     pub version: String,
     pub format: EDLPluginFormat,
     pub stems: String,
-    pub total_instances: EDLPluginInstance,
+    pub total_instances: String,
+}
+
+impl ParseTable<Self> for EDLPlugin {
+    const TABLE_TOTAL_COLUMNS: usize = 6;
+    fn parse_table(table_data: &[String]) -> Option<Vec<Self>> {
+        let mut edl_plugins = Vec::<Self>::with_capacity(table_data.len());
+
+        for (i, line) in table_data.iter().enumerate() {
+            let parts = line.split("\t").into_iter().collect::<Vec<_>>();
+            if parts.len() == Self::TABLE_TOTAL_COLUMNS && i > 0 {
+                edl_plugins.push(
+                    EDLPlugin {
+                        manufacturer: parts[0].to_string(),
+                        name: parts[1].trim().to_string(),
+                        version: parts[2].trim().to_string(),
+                        format: EDLPluginFormat::from_str(parts[3].trim()).expect("EDLPluginFormat should have a valid plugin format option"),
+                        stems: parts[4].trim().to_string(),
+                        ..EDLPlugin::default()
+                    }
+                );
+            }
+
+            else { /* TODO: Report? */ }
+        }
+        
+        if edl_plugins.len() > 0 { return Some(edl_plugins); }
+
+        None
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////

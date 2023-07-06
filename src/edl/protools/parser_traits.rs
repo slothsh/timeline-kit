@@ -2,8 +2,6 @@
 // Copyright (C) Stefan Olivier
 // <https://stefanolivier.com>
 
-use crate::chrono::BitDepth;
-
 ///////////////////////////////////////////////////////////////////////////
 //
 //  -- @SECTION `EDLParser` Traits --
@@ -12,4 +10,9 @@ use crate::chrono::BitDepth;
 
 pub trait ParseField<T> {
     fn parse_field(field_string: &str) -> Option<T>;
+}
+
+pub trait ParseTable<T> {
+    const TABLE_TOTAL_COLUMNS: usize;
+    fn parse_table(table_data: &[String]) -> Option<Vec<T>>;
 }
