@@ -5,6 +5,7 @@ use crate::edl::protools::*;
 use crate::chrono::{
     BitDepth,
     FrameRate,
+    SampleRate,
     Timecode,
 };
 
@@ -17,7 +18,7 @@ use crate::chrono::{
 #[derive(Debug, Default)]
 pub struct EDLSession {
     pub name: String,
-    pub sample_rate: f32,
+    pub sample_rate: SampleRate,
     pub bit_depth: BitDepth,
     pub start_timecode: Timecode,
     pub fps: FrameRate,
@@ -34,7 +35,7 @@ impl EDLSession {
     pub fn new() -> Self {
         Self {
             name: "".to_string(),
-            sample_rate: 0.0,
+            sample_rate: SampleRate::default(),
             bit_depth: BitDepth::default(),
             start_timecode: Timecode::with_fps(FrameRate::default()),
             fps: FrameRate::default(),

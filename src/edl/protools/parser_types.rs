@@ -11,6 +11,8 @@ pub(super) const EDL_HEADER_LINE_SIZE: u32 = 8;
 pub(super) const EDL_TRACK_LISTING_LINE_SIZE: u32 = 4;
 pub(super) const EDL_SECTION_TERMINATOR_LENGTH: u32 = 2;
 pub(super) const EDL_FIELD_PARTS_LENGTH: u32 = 2;
+pub(super) const EDL_FIELD_NAME_INDEX: usize = 0;
+pub(super) const EDL_FIELD_VALUE_INDEX: usize = 1;
 pub(super) const EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS: [usize; 4] = [2, 6, 7, 8];
 pub(super) const EDLPARSER_MASK_SECTION_PLUGINSLISTING: u8 = 0b00000001;
 
@@ -20,23 +22,22 @@ pub(super) const EDLPARSER_MASK_SECTION_PLUGINSLISTING: u8 = 0b00000001;
 //
 ///////////////////////////////////////////////////////////////////////////
 
-pub(super) const EDLSECTION_SIZE: usize = EDLSection::Ignore as usize + 1;
+pub(super) const EDLSECTION_SIZE: usize = EDLSection::Unknown as usize + 1;
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
 pub(super) enum EDLSection {
     Header,
-    PluginsListing,
     OnlineFiles,
     OfflineFiles,
     OnlineClips,
+    PluginsListing,
     TrackListing,
-    TrackEvent,
     MarkersListing,
     #[default]
-    Ignore,
+    Unknown,
 }
 
 impl EDLSection {
-    pub(super) fn section_name(&self) -> &'static str {
+    pub(super) const fn section_name(&self) -> &'static str {
         match self {
             EDLSection::Header => "__header__",
             EDLSection::PluginsListing => "P L U G - I N S  L I S T I N G",
@@ -44,9 +45,8 @@ impl EDLSection {
             EDLSection::OfflineFiles => "O F F L I N E  F I L E S  I N  S E S S I O N",
             EDLSection::OnlineClips => "O N L I N E  C L I P S  I N  S E S S I O N",
             EDLSection::TrackListing => "T R A C K  L I S T I N G",
-            EDLSection::TrackEvent => "__track_event__",
             EDLSection::MarkersListing => "M A R K E R S  L I S T I N G",
-            EDLSection::Ignore => "__ignore__",
+            EDLSection::Unknown => "__unknown__",
         }
     }
 
@@ -59,9 +59,8 @@ impl EDLSection {
             OfflineFiles,
             OnlineClips,
             TrackListing,
-            TrackEvent,
             MarkersListing,
-            Ignore,
+            Unknown,
         ]
     }
 
@@ -129,7 +128,7 @@ pub(super) enum EDLField {
 }
 
 impl EDLField {
-    pub(super) fn field_name(&self) -> &'static str {
+    pub(super) const fn field_name(&self) -> &'static str {
         match self {
             EDLField::SessionName => "SESSION NAME",
             EDLField::SessionSampleRate => "SAMPLE RATE",
@@ -185,7 +184,5 @@ impl EDLField {
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum EDLValue<'a> {
-    Field(EDLSection, EDLField, &'a str),
-    TableHeader(EDLSection, &'a [&'a str; EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS[EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS.len() - 1]]),
-    TableEntry(EDLSection, &'a [&'a str; EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS[EDL_TRACK_EVENT_VALID_COLUMN_WIDTHS.len() - 1]]),
+    Field(EDLField, &'a str),
 }
