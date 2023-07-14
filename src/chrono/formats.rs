@@ -63,7 +63,7 @@ pub enum SampleRate {
     #[default]
     Khz44p1,
     Khz48,
-    Khz88p1,
+    Khz88p2,
     Khz96,
     Khz192,
 }
@@ -74,7 +74,7 @@ impl EDLParseField<Self> for SampleRate {
             "22000.000000" => Some(SampleRate::Khz22),
             "44100.000000" => Some(SampleRate::Khz44p1),
             "48000.000000" => Some(SampleRate::Khz48),
-            "88100.000000" => Some(SampleRate::Khz88p1),
+            "88200.000000" => Some(SampleRate::Khz88p2),
             "96000.000000" => Some(SampleRate::Khz96),
             "192000.000000" => Some(SampleRate::Khz192),
             _ => None,

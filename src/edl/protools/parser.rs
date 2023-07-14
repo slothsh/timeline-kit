@@ -84,32 +84,32 @@ impl<'a> EDLParser<'a> {
 
             match edl_parser.current_section {
                 Header => {
-                    raw_header_lines.push((edl_parser.file_position, trimmed_line.to_string()));
+                    raw_header_lines.push((edl_parser.file_position, line.to_string()));
                 },
 
                 PluginsListing => {
                     // TODO: Set EDLParser flags for plugins listing
-                    raw_plugins_listings_lines.push((edl_parser.file_position, trimmed_line.to_string()));
+                    raw_plugins_listings_lines.push((edl_parser.file_position, line.to_string()));
                 },
 
                 OnlineFiles => {
-                    raw_online_files_lines.push((edl_parser.file_position, trimmed_line.to_string()));
+                    raw_online_files_lines.push((edl_parser.file_position, line.to_string()));
                 },
 
                 OfflineFiles => {
-                    raw_offline_files_lines.push((edl_parser.file_position, trimmed_line.to_string()));
+                    raw_offline_files_lines.push((edl_parser.file_position, line.to_string()));
                 },
 
                 OnlineClips => {
-                    raw_online_clips_lines.push((edl_parser.file_position, trimmed_line.to_string()));
+                    raw_online_clips_lines.push((edl_parser.file_position, line.to_string()));
                 },
 
                 TrackListing => {
-                    raw_tracks_listings_lines.push((edl_parser.file_position, trimmed_line.to_string()));
+                    raw_tracks_listings_lines.push((edl_parser.file_position, line.to_string()));
                 },
 
                 MarkersListing => {
-                    raw_markers_listings_lines.push((edl_parser.file_position, trimmed_line.to_string()));
+                    raw_markers_listings_lines.push((edl_parser.file_position, line.to_string()));
                 },
 
                 Unknown => { /* TODO: Report? */ }
@@ -122,20 +122,20 @@ impl<'a> EDLParser<'a> {
         if let Some(_) = edl_parser.parse_plugins_listing(&mut raw_plugins_listings_lines, &mut edl_session) {
         }
 
-        // if let Some(_) = edl_parser.parse_offline_files_listing(&mut raw_offline_files_lines, &mut edl_session) {
-        // }
-        //
-        // if let Some(_) = edl_parser.parse_online_files_listing(&mut raw_online_files_lines, &mut edl_session) {
-        // }
-        //
-        // if let Some(_) = edl_parser.parse_online_clips_listing(&mut raw_online_clips_lines, &mut edl_session) {
-        // }
-        //
+        if let Some(_) = edl_parser.parse_offline_files_listing(&mut raw_offline_files_lines, &mut edl_session) {
+        }
+
+        if let Some(_) = edl_parser.parse_online_files_listing(&mut raw_online_files_lines, &mut edl_session) {
+        }
+
+        if let Some(_) = edl_parser.parse_online_clips_listing(&mut raw_online_clips_lines, &mut edl_session) {
+        }
+
         // if let Some(_) = edl_parser.parse_tracks_listing(&mut raw_tracks_listings_lines, &mut edl_session) {
         // }
-        //
-        // if let Some(_) = edl_parser.parse_markers_listing(&mut raw_markers_listings_lines, &mut edl_session) {
-        // }
+
+        if let Some(_) = edl_parser.parse_markers_listing(&mut raw_markers_listings_lines, &mut edl_session) {
+        }
 
         Ok(edl_session)
     }
@@ -154,6 +154,7 @@ impl<'a> EDLParser<'a> {
     }
 
     // TODO: Proper errors for parse_* functions
+    // TODO: Use a trait and implement it on the EDLSession to parse its own header
     fn parse_header(&self, raw_header_lines: &mut Vec<(usize, String)>, edl_session: &mut EDLSession) -> Option<()> {
         for field in raw_header_lines {
             if let Ok(EDLValue::Field(field_name, field_value)) = self.parse_edl_field(field.1.as_str()) {
@@ -179,15 +180,21 @@ impl<'a> EDLParser<'a> {
     }
 
     fn parse_plugins_listing(&self, raw_plugins_listings_lines: &mut Vec<(usize, String)>, edl_session: &mut EDLSession) -> Option<()> {
-        println!("{:?}", raw_plugins_listings_lines);
-        edl_session.plugins = EDLPlugin::parse_table(
+        if let Some(plugins_list) = EDLPlugin::parse_table(
             raw_plugins_listings_lines
                 .as_slice()
                 .into_iter()
                 .map(|(_, v)| v.clone())
                 .collect::<Vec<_>>()
                 .as_slice()
-        ).expect("EDL plugins listing table should contain valid data");
+        ) {
+            edl_session.plugins = plugins_list;
+        }
+
+        else {
+            return Some(());
+        }
+
         None
     }
 
@@ -196,23 +203,86 @@ impl<'a> EDLParser<'a> {
     }
 
     fn parse_markers_listing(&self, raw_markers_listings_lines: &mut Vec<(usize, String)>, edl_session: &mut EDLSession) -> Option<()> {
-        todo!()
+        if let Some(markers_listing) = EDLMarker::parse_table(
+            raw_markers_listings_lines
+                .as_slice()
+                .into_iter()
+                .map(|(_, v)| v.clone())
+                .collect::<Vec<_>>()
+                .as_slice()
+        ) {
+            edl_session.markers = markers_listing;
+        }
+
+        else {
+            return Some(());
+        }
+
+        None
     }
 
     fn parse_online_files_listing(&self, raw_online_files_lines: &mut Vec<(usize, String)>, edl_session: &mut EDLSession) -> Option<()> {
-        todo!()
+        if let Some(online_files) = EDLMediaFile::parse_table(
+            raw_online_files_lines
+                .as_slice()
+                .into_iter()
+                .map(|(_, v)| v.clone())
+                .collect::<Vec<_>>()
+                .as_slice()
+        ) {
+            edl_session.files.online_files = online_files;
+        }
+
+        else {
+            return Some(());
+        }
+
+        None
     }
 
     fn parse_offline_files_listing(&self, raw_offline_files_lines: &mut Vec<(usize, String)>, edl_session: &mut EDLSession) -> Option<()> {
-        todo!()
+        if let Some(offline_files) = EDLMediaFile::parse_table(
+            raw_offline_files_lines
+                .as_slice()
+                .into_iter()
+                .map(|(_, v)| v.clone())
+                .collect::<Vec<_>>()
+                .as_slice()
+        ) {
+            edl_session.files.offline_files = offline_files;
+        }
+
+        else {
+            return Some(());
+        }
+
+        None
     }
 
     fn parse_online_clips_listing(&self, raw_online_clips_lines: &mut Vec<(usize, String)>, edl_session: &mut EDLSession) -> Option<()> {
-        todo!()
+        if let Some(online_clips) = EDLClip::parse_table(
+            raw_online_clips_lines
+                .as_slice()
+                .into_iter()
+                .map(|(_, v)| v.clone())
+                .collect::<Vec<_>>()
+                .as_slice()
+        ) {
+            edl_session.files.online_clips = online_clips;
+        }
+
+        else {
+            return Some(());
+        }
+
+        None
     }
 
     fn is_section_declaration(&self, section_string: &str) -> bool {
-        let all_parts = section_string.split(' ');
+        let all_parts = section_string
+            .split(' ')
+            .filter(|&c| c != "");
+
         for part in all_parts {
             if part.len() != 1 { return false; }
         }

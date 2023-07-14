@@ -19,6 +19,32 @@ pub struct EDLMediaFile {
     pub location: String,
 }
 
+impl ParseTable<Self> for EDLMediaFile {
+    const TABLE_TOTAL_COLUMNS: usize = 2;
+    fn parse_table(table_data: &[String]) -> Option<Vec<Self>> {
+        let mut edl_media = Vec::<Self>::with_capacity(table_data.len());
+
+
+        for (i, line) in table_data.iter().enumerate() {
+            let parts = line.split("\t").into_iter().collect::<Vec<_>>();
+            if parts.len() == Self::TABLE_TOTAL_COLUMNS && i > 0 {
+                edl_media.push(
+                    Self {
+                        file_name: parts[0].trim().to_string(),
+                        location: parts[1].trim().to_string(),
+                    }
+                );
+            }
+
+            else { /* TODO: Report? */ }
+        }
+        
+        if edl_media.len() > 0 { return Some(edl_media); }
+
+        None
+    }
+}
+
 ///////////////////////////////////////////////////////////////////////////
 //
 //  -- @SECTION `EDLClip` Implementation --
@@ -29,6 +55,32 @@ pub struct EDLMediaFile {
 pub struct EDLClip {
     pub clip_name: String,
     pub source_file: String,
+}
+
+impl ParseTable<Self> for EDLClip {
+    const TABLE_TOTAL_COLUMNS: usize = 2;
+    fn parse_table(table_data: &[String]) -> Option<Vec<Self>> {
+        let mut edl_clip = Vec::<Self>::with_capacity(table_data.len());
+
+
+        for (i, line) in table_data.iter().enumerate() {
+            let parts = line.split("\t").into_iter().collect::<Vec<_>>();
+            if parts.len() == Self::TABLE_TOTAL_COLUMNS && i > 0 {
+                edl_clip.push(
+                    Self {
+                        clip_name: parts[0].trim().to_string(),
+                        source_file: parts[1].trim().to_string(),
+                    }
+                );
+            }
+
+            else { /* TODO: Report? */ }
+        }
+        
+        if edl_clip.len() > 0 { return Some(edl_clip); }
+
+        None
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////
@@ -110,6 +162,35 @@ pub struct EDLMarker {
     pub comment: String,
 }
 
+impl ParseTable<Self> for EDLMarker {
+    const TABLE_TOTAL_COLUMNS: usize = 6;
+    fn parse_table(table_data: &[String]) -> Option<Vec<Self>> {
+        let mut edl_markers = Vec::<Self>::with_capacity(table_data.len());
+
+        for (i, line) in table_data.iter().enumerate() {
+            let parts = line.split("\t").into_iter().collect::<Vec<_>>();
+            if parts.len() == Self::TABLE_TOTAL_COLUMNS && i > 0 {
+                edl_markers.push(
+                    Self {
+                        id: parts[0].trim().parse::<u32>().expect("EDLMarker id column should be a valid number"),
+                        location: Timecode::from_str(parts[1].trim(), FrameRate::default()).expect("EDLMarker location column should be a valid timecode string"),
+                        time_reference: parts[2].trim().parse::<u32>().expect("EDLMarker time reference columnd should be a valid number"),
+                        unit: EDLUnit::from_str(parts[3].trim()).expect("EDLMarker unit column should be valid unit option"),
+                        name: parts[4].trim().to_string(),
+                        comment: parts[5].trim().to_string(),
+                    }
+                );
+            }
+
+            else { /* TODO: Report? */ }
+        }
+        
+        if edl_markers.len() > 0 { return Some(edl_markers); }
+
+        None
+    }
+}
+
 ///////////////////////////////////////////////////////////////////////////
 //
 //  -- @SECTION `EDLUnit` Implementation --
@@ -167,7 +248,7 @@ impl ParseTable<Self> for EDLPlugin {
             if parts.len() == Self::TABLE_TOTAL_COLUMNS && i > 0 {
                 edl_plugins.push(
                     EDLPlugin {
-                        manufacturer: parts[0].to_string(),
+                        manufacturer: parts[0].trim().to_string(),
                         name: parts[1].trim().to_string(),
                         version: parts[2].trim().to_string(),
                         format: EDLPluginFormat::from_str(parts[3].trim()).expect("EDLPluginFormat should have a valid plugin format option"),
