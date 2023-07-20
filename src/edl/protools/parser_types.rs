@@ -124,6 +124,7 @@ pub(super) enum EDLField {
     TrackComment,
     TrackDelay,
     TrackState,
+    TrackPlugins,
     Unknown,
 }
 
@@ -142,6 +143,7 @@ impl EDLField {
             EDLField::TrackComment => "COMMENTS",
             EDLField::TrackDelay => "USER DELAY",
             EDLField::TrackState => "STATE",
+            EDLField::TrackPlugins => "PLUG-INS",
             EDLField::Unknown => "__unknown__",
         }
     }
@@ -161,6 +163,7 @@ impl EDLField {
             TrackComment,
             TrackDelay,
             TrackState,
+            TrackPlugins,
             Unknown,
         ]
     }

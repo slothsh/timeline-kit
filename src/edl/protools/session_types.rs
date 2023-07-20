@@ -24,7 +24,6 @@ impl ParseTable<Self> for EDLMediaFile {
     fn parse_table(table_data: &[String]) -> Option<Vec<Self>> {
         let mut edl_media = Vec::<Self>::with_capacity(table_data.len());
 
-
         for (i, line) in table_data.iter().enumerate() {
             let parts = line.split("\t").into_iter().collect::<Vec<_>>();
             if parts.len() == Self::TABLE_TOTAL_COLUMNS && i > 0 {
