@@ -2,6 +2,7 @@
 // <https://stefanolivier.com>
 
 use std::borrow::Borrow;
+use std::cmp::Ordering;
 use std::io::{BufRead, BufReader};
 use std::fs::File;
 use std::str::FromStr;
@@ -90,6 +91,7 @@ impl<'a> EDLParser<'a> {
                 PluginsListing => {
                     // TODO: Set EDLParser flags for plugins listing
                     raw_plugins_listings_lines.push((edl_parser.file_position, line.to_string()));
+                    edl_session.set_flag(EDLSESSION_FLAG_CONTAINS_PLUGIN);
                 },
 
                 OnlineFiles => {
@@ -131,8 +133,8 @@ impl<'a> EDLParser<'a> {
         if let Some(_) = edl_parser.parse_online_clips_listing(&mut raw_online_clips_lines, &mut edl_session) {
         }
 
-        // if let Some(_) = edl_parser.parse_tracks_listing(&mut raw_tracks_listings_lines, &mut edl_session) {
-        // }
+        if let Some(_) = edl_parser.parse_tracks_listing(&mut raw_tracks_listings_lines, &mut edl_session) {
+        }
 
         if let Some(_) = edl_parser.parse_markers_listing(&mut raw_markers_listings_lines, &mut edl_session) {
         }
@@ -141,7 +143,7 @@ impl<'a> EDLParser<'a> {
     }
     
     // TODO: Proper error for this function
-    fn parse_edl_field<'z>(&self, field_string: &'z str) -> Result<EDLValue<'z>, String> {
+    fn parse_edl_field<'z>(field_string: &'z str) -> Result<EDLValue<'z>, String> {
         let field_parts = field_string.split(":\t").into_iter().collect::<Vec<&str>>();
         if field_parts.len() == 2 {
             for field_variant in EDLField::all_variants() {
@@ -157,7 +159,7 @@ impl<'a> EDLParser<'a> {
     // TODO: Use a trait and implement it on the EDLSession to parse its own header
     fn parse_header(&self, raw_header_lines: &mut Vec<(usize, String)>, edl_session: &mut EDLSession) -> Option<()> {
         for field in raw_header_lines {
-            if let Ok(EDLValue::Field(field_name, field_value)) = self.parse_edl_field(field.1.as_str()) {
+            if let Ok(EDLValue::Field(field_name, field_value)) = EDLParser::parse_edl_field(field.1.as_str()) {
                 if field_name == EDLField::SessionName { edl_session.name = field_value.to_string(); }
                 else if field_name == EDLField::SessionSampleRate { edl_session.sample_rate = SampleRate::parse_field(field_value).expect("EDL header sample rate field should have a valid floating point value") }
                 else if field_name == EDLField::SessionBitDepth { edl_session.bit_depth = BitDepth::parse_field(field_value).expect("EDL header bit depth field should have a valid bit depth option value") }
@@ -199,7 +201,68 @@ impl<'a> EDLParser<'a> {
     }
 
     fn parse_tracks_listing(&self, raw_tracks_listings_lines: &mut Vec<(usize, String)>, edl_session: &mut EDLSession) -> Option<()> {
-        todo!()
+        let mut i = 0;
+
+        // Assumes that plugins listing has already been parsed
+        let track_header_size =
+            if edl_session.check_flag(EDLSESSION_FLAG_CONTAINS_PLUGIN) {
+                4
+            } else {
+                3
+            };
+
+        while i < raw_tracks_listings_lines.len() && i + track_header_size < raw_tracks_listings_lines.len() {
+            const TRACK_START_STRING: &str = "TRACK NAME:";
+            let next_track_index =
+                if let Some(next_track_index) = raw_tracks_listings_lines.iter().enumerate().position(|v| {
+                    if v.0 > i && v.1.1.len() >= TRACK_START_STRING.len() && &v.1.1[..11] == TRACK_START_STRING { true }
+                    else { false }
+                }) {
+                    next_track_index
+                }
+
+                else {
+                    raw_tracks_listings_lines.len()
+                };
+
+                if i < raw_tracks_listings_lines.len() {
+                    let mut track = EDLTrack::default();
+
+                    for (_, (_, line)) in raw_tracks_listings_lines[i..i + track_header_size].iter().enumerate() {
+                        if let Ok(EDLValue::Field(field_name, field_value)) = EDLParser::parse_edl_field(line.as_str()) {
+                            if field_name == EDLField::TrackName { track.name = field_value.trim().to_string() }
+                            else if field_name == EDLField::TrackComment { track.comment = field_value.to_string(); }
+                            else if field_name == EDLField::TrackDelay { track.delay = field_value.split(" ").collect::<Vec<_>>()[0].parse::<u32>().expect("EDLTrack field delay should be a valid number"); }
+                            else if field_name == EDLField::TrackState { /* TODO: Handle track states */ }
+                            else if field_name == EDLField::TrackPlugins { track.plugins = field_value.split("\t").map(|v| v.trim().to_string()).collect::<Vec<_>>(); }
+                            else { panic!("unexpected field name in EDL header section"); }
+                        }
+
+                        else {
+                            // TODO: Report?
+                        }
+
+                    }
+
+                    if let Some(events) = EDLTrackEvent::parse_table(
+                        raw_tracks_listings_lines[i + track_header_size + 1..next_track_index]
+                            .into_iter()
+                            .map(|(_, v)| v.clone())
+                            .collect::<Vec<_>>()
+                            .as_slice()
+                    ) {
+                        track.events = events;
+                    }
+
+                    edl_session.tracks.push(track);
+
+                }
+
+                i = next_track_index;
+        }
+
+
+        None
     }
 
     fn parse_markers_listing(&self, raw_markers_listings_lines: &mut Vec<(usize, String)>, edl_session: &mut EDLSession) -> Option<()> {

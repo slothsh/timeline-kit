@@ -29,6 +29,7 @@ pub struct EDLSession {
     pub markers: Vec<EDLMarker>,
     pub plugins: Vec<EDLPlugin>,
     pub tracks: Vec<EDLTrack>,
+    flags: u64,
 }
 
 impl EDLSession {
@@ -46,6 +47,28 @@ impl EDLSession {
             markers: Vec::<EDLMarker>::default(),
             plugins: Vec::<EDLPlugin>::default(),
             tracks: Vec::<EDLTrack>::with_capacity(16),
+            flags: EDLSESSION_FLAG_DEFAULT,
         }
     }
+
+    pub fn check_flag(&self, flag: u64) -> bool {
+        self.flags & flag == flag
+    }
+
+    pub fn set_flag(&mut self, flag: u64) {
+        self.flags |= flag;
+    }
+
+    pub fn reset_flag(&mut self, flag: u64) {
+        self.flags ^= flag;
+    }
 }
+
+///////////////////////////////////////////////////////////////////////////
+//
+//  -- @SECTION `EDLSession` Flags --
+//
+///////////////////////////////////////////////////////////////////////////
+
+pub const EDLSESSION_FLAG_DEFAULT: u64 = 0;
+pub const EDLSESSION_FLAG_CONTAINS_PLUGIN: u64 = 1 << 1;

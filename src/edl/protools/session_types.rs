@@ -117,6 +117,7 @@ pub struct EDLTrack {
     pub comment: String,
     pub delay: u32,
     pub state: (),
+    pub plugins: Vec<String>,
     pub events: Vec<EDLTrackEvent>,
 }
 
@@ -142,7 +143,74 @@ pub struct EDLTrackEvent {
     pub name: String,
     pub time_in: Timecode,
     pub time_out: Timecode,
+    pub timestamp: Timecode,
     pub state: bool,
+    flags: u8,
+}
+
+impl EDLTrackEvent {
+    pub fn check_flag(&self, flag: u8) -> bool {
+        self.flags & flag == flag
+    }
+
+    pub fn set_flag(&mut self, flag: u8) {
+        self.flags |= flag;
+    }
+
+    pub fn reset_flag(&mut self, flag: u8) {
+        self.flags ^= flag;
+    }
+}
+
+impl ParseTable<Self> for EDLTrackEvent {
+    const TABLE_TOTAL_COLUMNS: usize = 8;
+    fn parse_table(table_data: &[String]) -> Option<Vec<Self>> {
+        let mut edl_events = Vec::<Self>::with_capacity(table_data.len());
+        let mut contains_timestamp = false;
+
+        for (i, line) in table_data.iter().enumerate() {
+            let parts = line.split("\t").into_iter().collect::<Vec<_>>();
+
+            if (parts.len() == Self::TABLE_TOTAL_COLUMNS || parts.len() == Self::TABLE_TOTAL_COLUMNS - 1) && i > 0 {
+                let state =
+                    if parts[parts.len() - 1].trim() == "Muted" {
+                        true
+                    } else {
+                        false
+                    };
+
+                let timestamp =
+                    if contains_timestamp {
+                        Timecode::from_str(parts[parts.len() - 2].trim(), FrameRate::default()).expect("EDLTrackEvent time in column should be a valid timecode string")
+                    } else {
+                        Timecode::default()
+                    };
+
+                edl_events.push(
+                    Self {
+                        channel: parts[0].trim().parse::<u32>().expect("EDLTrackEvent channel column should be a valid number"),
+                        event: parts[1].trim().parse::<u32>().expect("EDLTrackEvent event column should be a valid number"),
+                        name: parts[2].trim().to_string(),
+                        time_in: Timecode::from_str(parts[3].trim(), FrameRate::default()).expect("EDLTrackEvent time in column should be a valid timecode string"),
+                        time_out: Timecode::from_str(parts[4].trim(), FrameRate::default()).expect("EDLTrackEvent time in column should be a valid timecode string"),
+                        timestamp,
+                        state,
+                        ..Self::default()
+                    }
+                );
+            }
+
+            else if (parts.len() == Self::TABLE_TOTAL_COLUMNS || parts.len() == Self::TABLE_TOTAL_COLUMNS - 1) && i == 0 {
+                contains_timestamp = parts[parts.len() - 2].trim() == "TIMESTAMP";
+            }
+
+            else { /* TODO: Report? */ }
+        }
+        
+        if edl_events.len() > 0 { return Some(edl_events); }
+
+        None
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////
