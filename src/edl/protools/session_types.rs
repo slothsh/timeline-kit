@@ -19,9 +19,9 @@ pub struct EDLMediaFile {
     pub location: String,
 }
 
-impl ParseTable<Self> for EDLMediaFile {
+impl ParseTable<Self, ()> for EDLMediaFile {
     const TABLE_TOTAL_COLUMNS: usize = 2;
-    fn parse_table(table_data: &[String]) -> Option<Vec<Self>> {
+    fn parse_table(table_data: &[String], _: ()) -> Option<Vec<Self>> {
         let mut edl_media = Vec::<Self>::with_capacity(table_data.len());
 
         for (i, line) in table_data.iter().enumerate() {
@@ -56,11 +56,10 @@ pub struct EDLClip {
     pub source_file: String,
 }
 
-impl ParseTable<Self> for EDLClip {
+impl ParseTable<Self, ()> for EDLClip {
     const TABLE_TOTAL_COLUMNS: usize = 2;
-    fn parse_table(table_data: &[String]) -> Option<Vec<Self>> {
+    fn parse_table(table_data: &[String], _: ()) -> Option<Vec<Self>> {
         let mut edl_clip = Vec::<Self>::with_capacity(table_data.len());
-
 
         for (i, line) in table_data.iter().enumerate() {
             let parts = line.split("\t").into_iter().collect::<Vec<_>>();
@@ -162,9 +161,9 @@ impl EDLTrackEvent {
     }
 }
 
-impl ParseTable<Self> for EDLTrackEvent {
+impl ParseTable<Self, FrameRate> for EDLTrackEvent {
     const TABLE_TOTAL_COLUMNS: usize = 8;
-    fn parse_table(table_data: &[String]) -> Option<Vec<Self>> {
+    fn parse_table(table_data: &[String], default_frame_rate: FrameRate) -> Option<Vec<Self>> {
         let mut edl_events = Vec::<Self>::with_capacity(table_data.len());
         let mut contains_timestamp = false;
 
@@ -181,23 +180,23 @@ impl ParseTable<Self> for EDLTrackEvent {
 
                 let timestamp =
                     if contains_timestamp {
-                        Timecode::from_str(parts[parts.len() - 2].trim(), FrameRate::default()).expect("EDLTrackEvent time in column should be a valid timecode string")
+                        Timecode::from_str(parts[parts.len() - 2].trim(), default_frame_rate).expect("EDLTrackEvent time in column should be a valid timecode string")
                     } else {
-                        Timecode::default()
+                        Timecode::with_fps(default_frame_rate)
                     };
 
-                edl_events.push(
-                    Self {
-                        channel: parts[0].trim().parse::<u32>().expect("EDLTrackEvent channel column should be a valid number"),
-                        event: parts[1].trim().parse::<u32>().expect("EDLTrackEvent event column should be a valid number"),
-                        name: parts[2].trim().to_string(),
-                        time_in: Timecode::from_str(parts[3].trim(), FrameRate::default()).expect("EDLTrackEvent time in column should be a valid timecode string"),
-                        time_out: Timecode::from_str(parts[4].trim(), FrameRate::default()).expect("EDLTrackEvent time in column should be a valid timecode string"),
-                        timestamp,
-                        state,
-                        ..Self::default()
-                    }
-                );
+                let edl_event = Self {
+                    channel: parts[0].trim().parse::<u32>().expect("EDLTrackEvent channel column should be a valid number"),
+                    event: parts[1].trim().parse::<u32>().expect("EDLTrackEvent event column should be a valid number"),
+                    name: parts[2].trim().to_string(),
+                    time_in: Timecode::from_str(parts[3].trim(), default_frame_rate).expect("EDLTrackEvent time in column should be a valid timecode string"),
+                    time_out: Timecode::from_str(parts[4].trim(), default_frame_rate).expect("EDLTrackEvent time in column should be a valid timecode string"),
+                    timestamp,
+                    state,
+                    ..Self::default()
+                };
+
+                edl_events.push(edl_event);
             }
 
             else if (parts.len() == Self::TABLE_TOTAL_COLUMNS || parts.len() == Self::TABLE_TOTAL_COLUMNS - 1) && i == 0 {
@@ -229,9 +228,9 @@ pub struct EDLMarker {
     pub comment: String,
 }
 
-impl ParseTable<Self> for EDLMarker {
+impl ParseTable<Self, FrameRate> for EDLMarker {
     const TABLE_TOTAL_COLUMNS: usize = 6;
-    fn parse_table(table_data: &[String]) -> Option<Vec<Self>> {
+    fn parse_table(table_data: &[String], default_frame_rate: FrameRate) -> Option<Vec<Self>> {
         let mut edl_markers = Vec::<Self>::with_capacity(table_data.len());
 
         for (i, line) in table_data.iter().enumerate() {
@@ -240,7 +239,7 @@ impl ParseTable<Self> for EDLMarker {
                 edl_markers.push(
                     Self {
                         id: parts[0].trim().parse::<u32>().expect("EDLMarker id column should be a valid number"),
-                        location: Timecode::from_str(parts[1].trim(), FrameRate::default()).expect("EDLMarker location column should be a valid timecode string"),
+                        location: Timecode::from_str(parts[1].trim(), default_frame_rate).expect("EDLMarker location column should be a valid timecode string"),
                         time_reference: parts[2].trim().parse::<u32>().expect("EDLMarker time reference columnd should be a valid number"),
                         unit: EDLUnit::from_str(parts[3].trim()).expect("EDLMarker unit column should be valid unit option"),
                         name: parts[4].trim().to_string(),
@@ -305,9 +304,9 @@ pub struct EDLPlugin {
     pub total_instances: String,
 }
 
-impl ParseTable<Self> for EDLPlugin {
+impl ParseTable<Self, ()> for EDLPlugin {
     const TABLE_TOTAL_COLUMNS: usize = 6;
-    fn parse_table(table_data: &[String]) -> Option<Vec<Self>> {
+    fn parse_table(table_data: &[String], _: ()) -> Option<Vec<Self>> {
         let mut edl_plugins = Vec::<Self>::with_capacity(table_data.len());
 
         for (i, line) in table_data.iter().enumerate() {

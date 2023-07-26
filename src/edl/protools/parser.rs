@@ -142,21 +142,7 @@ impl<'a> EDLParser<'a> {
         Ok(edl_session)
     }
     
-    // TODO: Proper error for this function
-    fn parse_edl_field<'z>(field_string: &'z str) -> Result<EDLValue<'z>, String> {
-        let field_parts = field_string.split(":\t").into_iter().collect::<Vec<&str>>();
-        if field_parts.len() == 2 {
-            for field_variant in EDLField::all_variants() {
-                if field_variant.field_name() == field_parts[EDL_FIELD_NAME_INDEX] {
-                    return Ok(EDLValue::Field(*field_variant, field_parts[EDL_FIELD_VALUE_INDEX]));
-                }
-            }
-        }
-        Err("".to_string())
-    }
-
     // TODO: Proper errors for parse_* functions
-    // TODO: Use a trait and implement it on the EDLSession to parse its own header
     fn parse_header(&self, raw_header_lines: &mut Vec<(usize, String)>, edl_session: &mut EDLSession) -> Option<()> {
         for field in raw_header_lines {
             if let Ok(EDLValue::Field(field_name, field_value)) = EDLParser::parse_edl_field(field.1.as_str()) {
@@ -188,7 +174,8 @@ impl<'a> EDLParser<'a> {
                 .into_iter()
                 .map(|(_, v)| v.clone())
                 .collect::<Vec<_>>()
-                .as_slice()
+                .as_slice(),
+            ()
         ) {
             edl_session.plugins = plugins_list;
         }
@@ -249,13 +236,13 @@ impl<'a> EDLParser<'a> {
                             .into_iter()
                             .map(|(_, v)| v.clone())
                             .collect::<Vec<_>>()
-                            .as_slice()
+                            .as_slice(),
+                        edl_session.fps
                     ) {
                         track.events = events;
                     }
 
                     edl_session.tracks.push(track);
-
                 }
 
                 i = next_track_index;
@@ -272,7 +259,8 @@ impl<'a> EDLParser<'a> {
                 .into_iter()
                 .map(|(_, v)| v.clone())
                 .collect::<Vec<_>>()
-                .as_slice()
+                .as_slice(),
+            edl_session.fps
         ) {
             edl_session.markers = markers_listing;
         }
@@ -291,7 +279,8 @@ impl<'a> EDLParser<'a> {
                 .into_iter()
                 .map(|(_, v)| v.clone())
                 .collect::<Vec<_>>()
-                .as_slice()
+                .as_slice(),
+            ()
         ) {
             edl_session.files.online_files = online_files;
         }
@@ -310,7 +299,8 @@ impl<'a> EDLParser<'a> {
                 .into_iter()
                 .map(|(_, v)| v.clone())
                 .collect::<Vec<_>>()
-                .as_slice()
+                .as_slice(),
+            ()
         ) {
             edl_session.files.offline_files = offline_files;
         }
@@ -329,7 +319,8 @@ impl<'a> EDLParser<'a> {
                 .into_iter()
                 .map(|(_, v)| v.clone())
                 .collect::<Vec<_>>()
-                .as_slice()
+                .as_slice(),
+            ()
         ) {
             edl_session.files.online_clips = online_clips;
         }
@@ -351,5 +342,18 @@ impl<'a> EDLParser<'a> {
         }
         if section_string.trim() == "" { return false; }
         true
+    }
+
+    // TODO: Proper error for this function
+    fn parse_edl_field<'z>(field_string: &'z str) -> Result<EDLValue<'z>, String> {
+        let field_parts = field_string.split(":\t").into_iter().collect::<Vec<&str>>();
+        if field_parts.len() == 2 {
+            for field_variant in EDLField::all_variants() {
+                if field_variant.field_name() == field_parts[EDL_FIELD_NAME_INDEX] {
+                    return Ok(EDLValue::Field(*field_variant, field_parts[EDL_FIELD_VALUE_INDEX]));
+                }
+            }
+        }
+        Err("".to_string())
     }
 }
