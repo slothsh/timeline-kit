@@ -240,7 +240,7 @@ impl ParseTable<Self, FrameRate> for EDLMarker {
                     Self {
                         id: parts[0].trim().parse::<u32>().expect("EDLMarker id column should be a valid number"),
                         location: Timecode::from_str(parts[1].trim(), default_frame_rate).expect("EDLMarker location column should be a valid timecode string"),
-                        time_reference: parts[2].trim().parse::<u32>().expect("EDLMarker time reference columnd should be a valid number"),
+                        time_reference: parts[2].trim().parse::<u32>().expect("EDLMarker time reference column should be a valid number"),
                         unit: EDLUnit::from_str(parts[3].trim()).expect("EDLMarker unit column should be valid unit option"),
                         name: parts[4].trim().to_string(),
                         comment: parts[5].trim().to_string(),
