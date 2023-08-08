@@ -20,6 +20,7 @@ The project is, observably, still in an early development stage.
 
 - [ ] Unit tests for EDLParser
 - [ ] Unit tests for EDLSession
+- [ ] Unit tests for Timecode
 
 ### Timecode
 
@@ -49,5 +50,9 @@ The project is, observably, still in an early development stage.
 
 - [ ] Better representation of certain fields/entries in protools EDL in EDLSession
     - [ ] Parse & store file path strings as FilePath structures
+
+- [ ] Do basic error reporting pass for EDLParser
+    - [ ] Identify potential locations for slotting in error messages
+    - [ ] Settle on error type for EDLParser
 
 ___

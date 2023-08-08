@@ -148,6 +148,7 @@ pub struct EDLTrackEvent {
 }
 
 impl EDLTrackEvent {
+    // TODO: de-duplicate this code
     pub fn check_flag(&self, flag: u8) -> bool {
         self.flags & flag == flag
     }
@@ -157,7 +158,7 @@ impl EDLTrackEvent {
     }
 
     pub fn reset_flag(&mut self, flag: u8) {
-        self.flags ^= flag;
+        self.flags &= !flag;
     }
 }
 

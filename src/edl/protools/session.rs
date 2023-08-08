@@ -60,7 +60,7 @@ impl EDLSession {
     }
 
     pub fn reset_flag(&mut self, flag: u64) {
-        self.flags ^= flag;
+        self.flags &= !flag;
     }
 }
 
