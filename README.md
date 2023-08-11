@@ -13,8 +13,8 @@ The project is, observably, still in an early development stage.
 
 ### Project Structure
 
-- [ ] Rearrange src/chrono module to only include "Timecode"
-- [ ] Move format related code to a dedicated module: "Format"
+- [x] Rearrange src/chrono module to only include "Timecode"
+- [x] Move format related code to a dedicated module: "Format"
 
 ### Testing
 
