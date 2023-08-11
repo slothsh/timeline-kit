@@ -12,9 +12,12 @@ use encoding_rs_io::DecodeReaderBytesBuilder;
 
 use crate::edl::protools::*;
 use crate::chrono::{
+    Timecode,
+};
+use crate::format::{
     BitDepth,
     FrameRate,
-    Timecode, SampleRate
+    SampleRate,
 };
 
 ///////////////////////////////////////////////////////////////////////////

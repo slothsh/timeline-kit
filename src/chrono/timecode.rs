@@ -1,12 +1,12 @@
 // Copyright (C) Stefan Olivier
 // <https://stefanolivier.com>
 
-#![allow(dead_code, unused_variables)]
+#![allow(dead_code, unused_variables, unused_braces)]
 
 use std::{fmt::Display, write, ops::Rem};
 use num_traits::{Bounded, ToPrimitive};
 
-use super::formats::FrameRate;
+use crate::format::FrameRate;
 
 ///////////////////////////////////////////////////////////////////////////
 //

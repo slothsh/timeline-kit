@@ -1,7 +1,7 @@
 // Copyright (C) Stefan Olivier
 // <https://stefanolivier.com>
 
-#![allow(dead_code, unused_imports)]
+#![allow(dead_code, unused_imports, unused_braces)]
 
 mod parser;
 mod parser_types;

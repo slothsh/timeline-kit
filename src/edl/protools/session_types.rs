@@ -4,6 +4,8 @@
 use crate::edl::protools::*;
 use crate::chrono::{
     Timecode,
+};
+use crate::format::{
     FrameRate,
 };
 
