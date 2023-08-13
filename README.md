@@ -25,10 +25,13 @@ The project is, observably, still in an early development stage.
 ### Timecode
 
 - [ ] Implement all number traits
+- [ ] Handle display of ticks/sub-frames
 - [ ] Handle drop frame implementation
-    - [ ] String representation
+    - [x] Set drop-frame flags in ctor associated functions
+    - [x] String representation
     - [ ] Drop-frame to_ticks logic
-    - [ ] Setup flags member variable & associated functions
+    - [x] Setup flags member variable & associated functions
+- [ ] Complete documentation comments for implemented code
 
 ### Avid Protools Data
 

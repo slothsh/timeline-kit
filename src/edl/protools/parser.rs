@@ -1,6 +1,8 @@
 // Copyright (C) Stefan Olivier
 // <https://stefanolivier.com>
 
+#![allow(unused_braces)]
+
 use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::io::{BufRead, BufReader};

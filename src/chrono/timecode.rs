@@ -3,7 +3,7 @@
 
 #![allow(dead_code, unused_variables, unused_braces)]
 
-use std::{fmt::Display, write, ops::Rem};
+use std::{fmt::Display, write, ops::Rem };
 use num_traits::{Bounded, ToPrimitive};
 
 use crate::format::FrameRate;
@@ -76,15 +76,19 @@ const TC_STRING_REGULAR_LENGTH: usize = TC_TOTAL_GROUPS * TC_STRING_REGULAR_GROU
 // TODO: Doc comments
 const TC_TOTAL_GROUPS_MINSEC: usize = 2;
 const TC_REGULAR_TOTAL_GROUPS: usize = TC_TOTAL_GROUPS - 1;
-const TC_STRING_DELIMITER_COLON: char = ':';
-const TC_STRING_DELIMITER_SEMICOLON: char = ';';
+const TC_STRING_DELIMITER_COLON_CHAR: char = ':';
+const TC_STRING_DELIMITER_SEMICOLON_CHAR: char = ';';
+const TC_STRING_DELIMITER_COLON: &str = ":";
+const TC_STRING_DELIMITER_SEMICOLON: &str = ";";
 const TC_TICK_RESOLUTION: usize = 100;
 const TC_SCALAR_HOURS_INDEX: usize = 0;
 const TC_SCALAR_MINUTES_INDEX: usize = 1;
 const TC_SCALAR_SECONDS_INDEX: usize = 2;
 const TC_SCALAR_FRAMES_INDEX: usize = 3;
 const TC_SCALAR_TICKS_INDEX: usize = 4;
+const TC_DELIMITER_DROPFRAME_INDEX: usize = ((TC_TOTAL_GROUPS - 2) * (TC_STRING_REGULAR_GROUP_SIZE + 1)) - 1;
 const TC_FLAGS_DEFAULT: TimecodeFlag = 0;
+const TC_FLAGS_DROPFRAME: TimecodeFlag = 1 << 0;
 const TC_SCALAR_ORDER_TABLE: [usize; TC_TOTAL_GROUPS] = [
     TC_SCALAR_HOURS_INDEX,
     TC_SCALAR_MINUTES_INDEX,
@@ -148,25 +152,51 @@ pub struct Timecode {
 impl Timecode {
     /// Constructs a new `Timecode` with a specified frame rate
     pub fn with_fps(fps: TimecodeFrameRate) -> Self {
-        Self {
+        let mut timecode = Self {
             fps,
             ..Timecode::default()
+        };
+        
+        use FrameRate::*;
+        match fps {
+            Fps24(true) | Fps30(true) | Fps60(true) => {
+                timecode.set_flag(TC_FLAGS_DROPFRAME);
+            },
+            _ => {},
         }
+
+        timecode
     }
 
     pub fn from_parts(groups: &[TimecodeScalar; TC_TOTAL_GROUPS], fps: FrameRate) -> Self {
         // TODO: Check bounds of groups
         // TODO: Check flags based on bounds check of groups
 
-        Self {
+        let mut timecode = Self {
             data: groups.clone(),
             fps,
             ..Timecode::default()
+        };
+        
+        use FrameRate::*;
+        match fps {
+            Fps24(true) | Fps30(true) | Fps60(true) => {
+                timecode.set_flag(TC_FLAGS_DROPFRAME);
+            },
+            _ => {},
         }
+
+        timecode
     }
 
     pub fn from_str(tc_string: &str, fps: FrameRate) -> Result<Self, ()> { // TODO: ErrorType for timecodes
-        let parts = tc_string.split([TC_STRING_DELIMITER_COLON, TC_STRING_DELIMITER_SEMICOLON])
+        // TODO: ErrorType for timecodes
+        let is_drop_frame = tc_string.find(TC_STRING_DELIMITER_SEMICOLON)
+            .map_or(Ok(false), |v| {
+                if v == TC_DELIMITER_DROPFRAME_INDEX { Ok(true) } else { Err(()) }
+            })?;
+
+        let parts = tc_string.split([TC_STRING_DELIMITER_COLON_CHAR, TC_STRING_DELIMITER_SEMICOLON_CHAR])
             .into_iter()
             .map(|c| c.parse::<TimecodeScalar>().expect("timecode string parts must be a valid TimecodeScalar"));
 
@@ -187,6 +217,10 @@ impl Timecode {
 
         for (i, scalar) in parts.enumerate() {
             timecode.data[i] = scalar;
+        }
+
+        if is_drop_frame {
+            timecode.set_flag(TC_FLAGS_DROPFRAME);
         }
 
         Ok(timecode)
@@ -240,11 +274,23 @@ impl Timecode {
     pub fn set_frame_rate(&mut self, fps: FrameRate) {
         self.fps = fps;
     }
+
+    pub fn check_flag(&self, flag: TimecodeFlag) -> bool {
+        self.flags & flag == flag
+    }
+
+    pub fn set_flag(&mut self, flag: TimecodeFlag) {
+        self.flags |= flag;
+    }
+
+    pub fn reset_flag(&mut self, flag: TimecodeFlag) {
+        self.flags &= !flag;
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////
 //
-//  -- @SECTION `Timecode` Trait Implemenations --
+//  -- @SECTION `Timecode` Trait Implementations --
 //
 ///////////////////////////////////////////////////////////////////////////
 
@@ -261,11 +307,25 @@ impl Default for Timecode {
 impl Display for Timecode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // TODO: Handle display of drop-frame delimiter
+        //
+        // drop-frame timecode skips frame numbers 0 and 1 of the first second of every minute,
+        // except when the number of minutes is divisible by ten. This causes timecode to skip
+        // 18 frames each ten minutes (18,000 frames @ 30 frame/s) and almost perfectly compensates
+        // for the difference in rate (but still accumulates 1 frame every 9 hours 15 minutes).
+
         // TODO: Handle display of ticks/sub-frames
 
         let mut tc_string = String::with_capacity(TC_STRING_REGULAR_LENGTH);
         for (i, &scalar) in self.data.iter().take(TC_TOTAL_GROUPS - 1).enumerate() {
-            let delimiter = if i < TC_TOTAL_GROUPS - 2 { ":" } else { "" };
+            let delimiter = if i < TC_TOTAL_GROUPS - 2 {
+                if i == TC_SCALAR_SECONDS_INDEX && self.check_flag(TC_FLAGS_DROPFRAME) {
+                    TC_STRING_DELIMITER_SEMICOLON
+                } else {
+                    TC_STRING_DELIMITER_COLON
+                }
+            } else {
+                ""
+            };
             tc_string += format!("{:0>2}{}", scalar, delimiter).as_str();
         }
 
@@ -647,6 +707,7 @@ mod tests {
     fn str_constructor() {
         let timecode_with_ticks = Timecode::from_str("00:01:02:03:04", FrameRate::Fps25).expect("timecode must be constructible with a timecode string slice");
         let timecode_regular = Timecode::from_str("05:06:07:08", FrameRate::Fps25).expect("timecode must be constructible with a timecode string slice");
+        let timecode_dropframe = Timecode::from_str("09:10:11;12", FrameRate::Fps24(true)).expect("timecode must be constructible with a drop-frame timecode string slice");
 
         assert_eq!(timecode_with_ticks.data[TC_SCALAR_HOURS_INDEX], 0);
         assert_eq!(timecode_with_ticks.data[TC_SCALAR_MINUTES_INDEX], 1);
@@ -663,6 +724,14 @@ mod tests {
         assert_eq!(timecode_regular.data[TC_SCALAR_TICKS_INDEX], 0);
         assert_eq!(timecode_regular.fps, FrameRate::Fps25);
         assert_eq!(timecode_regular.flags, TC_FLAGS_DEFAULT);
+
+        assert_eq!(timecode_dropframe.data[TC_SCALAR_HOURS_INDEX], 9);
+        assert_eq!(timecode_dropframe.data[TC_SCALAR_MINUTES_INDEX], 10);
+        assert_eq!(timecode_dropframe.data[TC_SCALAR_SECONDS_INDEX], 11);
+        assert_eq!(timecode_dropframe.data[TC_SCALAR_FRAMES_INDEX], 12);
+        assert_eq!(timecode_dropframe.data[TC_SCALAR_TICKS_INDEX], 0);
+        assert_eq!(timecode_dropframe.fps, FrameRate::Fps24(true));
+        assert_eq!(timecode_dropframe.flags, TC_FLAGS_DROPFRAME);
     }
 
 
@@ -692,7 +761,9 @@ mod tests {
     fn display_trait_regular_representation() {
         let timecode_defaulted = Timecode::default();
         let timecode_new = Timecode::from_parts(&[13, 12, 32, 42, 100], FrameRate::Fps25);
+        let timecode_dropframe = Timecode::from_str("01:02:03;04", FrameRate::Fps24(true)).expect("timecode must be constructible with a drop-frame timecode string slice");
         assert_eq!("00:00:00:00", format!("{}", timecode_defaulted));
         assert_eq!("13:12:32:42", format!("{}", timecode_new));
+        assert_eq!("01:02:03;04", format!("{}", timecode_dropframe));
     }
 }
