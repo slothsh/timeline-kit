@@ -31,6 +31,7 @@ The project is, observably, still in an early development stage.
     - [x] String representation
     - [ ] Drop-frame to_ticks logic
     - [x] Setup flags member variable & associated functions
+- [ ] Determine what num_traits are necessary, if any at all
 - [ ] Complete documentation comments for implemented code
 
 ### Avid Protools Data

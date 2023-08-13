@@ -312,6 +312,7 @@ impl Display for Timecode {
         // except when the number of minutes is divisible by ten. This causes timecode to skip
         // 18 frames each ten minutes (18,000 frames @ 30 frame/s) and almost perfectly compensates
         // for the difference in rate (but still accumulates 1 frame every 9 hours 15 minutes).
+        // <source: https://en.wikipedia.org/wiki/SMPTE_timecode#Drop-frame_timecode>
 
         // TODO: Handle display of ticks/sub-frames
 
