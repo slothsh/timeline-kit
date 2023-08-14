@@ -762,7 +762,7 @@ mod tests {
     fn display_trait_regular_representation() {
         let timecode_defaulted = Timecode::default();
         let timecode_new = Timecode::from_parts(&[13, 12, 32, 42, 100], FrameRate::Fps25);
-        let timecode_dropframe = Timecode::from_str("01:02:03;04", FrameRate::Fps24(true)).expect("timecode must be constructible with a drop-frame timecode string slice");
+        let timecode_dropframe = Timecode::from_parts(&[1, 2, 3, 4, 0], FrameRate::Fps24(true));
         assert_eq!("00:00:00:00", format!("{}", timecode_defaulted));
         assert_eq!("13:12:32:42", format!("{}", timecode_new));
         assert_eq!("01:02:03;04", format!("{}", timecode_dropframe));

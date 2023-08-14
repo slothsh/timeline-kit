@@ -25,6 +25,8 @@ The project is, observably, still in an early development stage.
 ### Timecode
 
 - [ ] Implement all number traits
+- [ ] Implement PartialEq trait
+- [ ] Implement Ord trait
 - [ ] Handle display of ticks/sub-frames
 - [ ] Handle parsing of timecodes with sub-frames
 - [ ] Handle drop frame implementation
@@ -34,6 +36,7 @@ The project is, observably, still in an early development stage.
     - [x] Setup flags member variable & associated functions
 - [ ] Determine what num_traits are necessary, if any at all
 - [ ] Complete documentation comments for implemented code
+- [ ] Bounds checking for direct data initialization in from_parts()
 
 ### Avid Protools Data
 
