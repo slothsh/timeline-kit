@@ -26,6 +26,7 @@ The project is, observably, still in an early development stage.
 
 - [ ] Implement all number traits
 - [ ] Handle display of ticks/sub-frames
+- [ ] Handle parsing of timecodes with sub-frames
 - [ ] Handle drop frame implementation
     - [x] Set drop-frame flags in ctor associated functions
     - [x] String representation
@@ -51,6 +52,7 @@ The project is, observably, still in an early development stage.
     - [x] Child structures for EDLSession parent
 
 - [ ] Handle multi-mono clip events when parsing tracks in EDLParser
+- [ ] Determine best way to parse track IO topology
 
 - [ ] Better representation of certain fields/entries in protools EDL in EDLSession
     - [ ] Parse & store file path strings as FilePath structures
