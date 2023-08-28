@@ -51,7 +51,7 @@ impl<'a> EDLParser<'a> {
             ..EDLParser::default()
         };
 
-        let input_file = File::open(input_path).unwrap();
+        let input_file = File::open(input_path).map_err(|_| "could not open EDL file for parsing".to_string())?;
         let input_file_decoder = DecodeReaderBytesBuilder::new()
             .encoding(Some(encoding))
             .build(input_file);
